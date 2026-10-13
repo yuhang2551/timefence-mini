@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 
@@ -41,3 +43,18 @@ def liquidity_universe(
     eligible = traded & seasoned & allowed_board
     rank = avg_amount.where(eligible).rank(axis=1, ascending=False, method="first")
     return rank <= top_n
+
+
+@dataclass(frozen=True)
+class UniverseConfig:
+    """Universe settings shared by research and trading, so both see the same stocks."""
+
+    top_n: int = 500
+    lookback: int = 20
+    min_listed_days: int = 365
+    exclude_boards: tuple[str, ...] = ("bse",)
+
+    def build(self, source: PanelSource) -> pd.DataFrame:
+        return liquidity_universe(
+            source, self.top_n, self.lookback, self.min_listed_days, self.exclude_boards
+        )

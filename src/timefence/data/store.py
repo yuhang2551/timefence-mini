@@ -80,8 +80,9 @@ class MarketStore:
             raw_vwap = self._pivot("amount") / self.panel("volume")
             return raw_vwap * self._pivot("adj_factor")
         if field == "returns":
+            # After a suspension, the return runs from the last close before it.
             close = self.panel("close")
-            return close / close.shift(1) - 1.0
+            return close / close.ffill().shift(1) - 1.0
         raise KeyError(f"unknown field: {field}")
 
     def tradable(self) -> pd.DataFrame:

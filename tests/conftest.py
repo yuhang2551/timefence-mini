@@ -34,3 +34,27 @@ def frames_equal(a: pd.DataFrame, b: pd.DataFrame) -> bool:
         return False
     pd.testing.assert_frame_equal(a, b, check_exact=False, rtol=1e-9, atol=1e-12, check_freq=False)
     return True
+
+
+def make_store(rows, boards=None, delist=None, list_date="2015-01-05"):
+    """Build a tiny store from (date, code, open, close, volume, adj_factor) tuples."""
+    from timefence.data.schema import board_of, with_available_at
+    from timefence.data.store import MarketStore
+
+    bars = pd.DataFrame(rows, columns=["date", "code", "open", "close", "volume", "adj_factor"])
+    bars["high"] = bars[["open", "close"]].max(axis=1)
+    bars["low"] = bars[["open", "close"]].min(axis=1)
+    bars["amount"] = bars["volume"] * bars["close"]
+    codes = sorted(bars["code"].unique())
+    boards = boards or {}
+    delist = delist or {}
+    stocks = pd.DataFrame(
+        {
+            "code": codes,
+            "name": codes,
+            "board": [boards.get(c, board_of(c)) for c in codes],
+            "list_date": pd.Timestamp(list_date),
+            "delist_date": [pd.Timestamp(delist[c]) if c in delist else pd.NaT for c in codes],
+        }
+    )
+    return MarketStore(with_available_at(bars), stocks)
