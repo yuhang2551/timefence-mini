@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from timefence.core import rolling
 from timefence.core.types import PanelSource
 
 
@@ -39,7 +40,11 @@ def liquidity_universe(
     )
     allowed_board = ~stocks["board"].isin(exclude_boards)
 
-    avg_amount = amount.rolling(lookback, min_periods=max(1, lookback // 2)).mean()
+    avg_amount = pd.DataFrame(
+        rolling.rolling_mean(amount.to_numpy(dtype=float), lookback, max(1, lookback // 2)),
+        index=amount.index,
+        columns=amount.columns,
+    )
     eligible = traded & seasoned & allowed_board
     rank = avg_amount.where(eligible).rank(axis=1, ascending=False, method="first")
     return rank <= top_n

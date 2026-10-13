@@ -10,6 +10,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from timefence.core import rolling
+
 Panel = pd.DataFrame
 
 
@@ -32,42 +34,52 @@ def pct_change(x: Panel, d: int) -> Panel:
     return _clean(x / x.shift(d) - 1.0)
 
 
+def _wrap(values: np.ndarray, like: Panel) -> Panel:
+    return pd.DataFrame(values, index=like.index, columns=like.columns)
+
+
+def _arr(x: Panel) -> np.ndarray:
+    return x.to_numpy(dtype=float)
+
+
 def ts_mean(x: Panel, d: int) -> Panel:
-    return x.rolling(d, min_periods=d).mean()
+    return _wrap(rolling.rolling_mean(_arr(x), d), x)
 
 
 def ts_sum(x: Panel, d: int) -> Panel:
-    return x.rolling(d, min_periods=d).sum()
+    return _wrap(rolling.rolling_sum(_arr(x), d), x)
 
 
 def ts_std(x: Panel, d: int) -> Panel:
-    return x.rolling(d, min_periods=d).std()
+    return _wrap(rolling.rolling_std(_arr(x), d), x)
 
 
 def ts_max(x: Panel, d: int) -> Panel:
-    return x.rolling(d, min_periods=d).max()
+    return _wrap(rolling.rolling_max(_arr(x), d), x)
 
 
 def ts_min(x: Panel, d: int) -> Panel:
-    return x.rolling(d, min_periods=d).min()
+    return _wrap(rolling.rolling_min(_arr(x), d), x)
 
 
 def ts_rank(x: Panel, d: int) -> Panel:
     """Percentile of today's value within the last d days."""
-    return x.rolling(d, min_periods=d).rank(pct=True)
+    return _wrap(rolling.rolling_rank_pct(_arr(x), d), x)
 
 
 def ts_zscore(x: Panel, d: int) -> Panel:
-    roll = x.rolling(d, min_periods=d)
-    return _clean((x - roll.mean()) / roll.std())
+    a = _arr(x)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        z = (a - rolling.rolling_mean(a, d)) / rolling.rolling_std(a, d)
+    return _clean(_wrap(z, x))
 
 
 def ts_corr(x: Panel, y: Panel, d: int) -> Panel:
-    return _clean(x.rolling(d, min_periods=d).corr(y))
+    return _clean(_wrap(rolling.rolling_corr(_arr(x), _arr(y), d), x))
 
 
 def ts_cov(x: Panel, y: Panel, d: int) -> Panel:
-    return x.rolling(d, min_periods=d).cov(y)
+    return _wrap(rolling.rolling_cov(_arr(x), _arr(y), d), x)
 
 
 def decay_linear(x: Panel, d: int) -> Panel:

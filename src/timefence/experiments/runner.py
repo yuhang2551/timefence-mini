@@ -36,7 +36,6 @@ DEFAULT_SPLIT = (
     ("2022-01-01", "2022-12-31"),
     ("2023-01-01", "2024-12-31"),
 )
-HOLDOUT_START = "2025-01-01"
 
 
 @dataclass
@@ -60,6 +59,7 @@ class RunConfig:
     max_calls: int = 300
     llm_cache: str = ".cache/llm"
     holdout: bool = False
+    holdout_start: str = "2025-01-01"  # after the model's knowledge cutoff; check the model's docs
 
     @property
     def universe(self) -> UniverseConfig:
@@ -83,7 +83,8 @@ def run_experiment(
 ) -> dict:
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    split = choose_split(store.calendar)
+    # Train, valid and test all end before the holdout, so the holdout stays untouched.
+    split = choose_split(store.calendar[store.calendar < pd.Timestamp(cfg.holdout_start)])
     run_id = out.name
 
     mining, lab_reports = _mine(store, cfg, split, out, run_id)
@@ -186,7 +187,7 @@ def _test(
 
 def _holdout(store: MarketStore, cfg: RunConfig, factors: list[dict]) -> dict | None:
     """The final check on data after the test window. Run it once, after everything is frozen."""
-    days = store.calendar[store.calendar >= pd.Timestamp(HOLDOUT_START)]
+    days = store.calendar[store.calendar >= pd.Timestamp(cfg.holdout_start)]
     kept = [r for r in factors if r["kept"]]
     if len(days) < 60 or not kept:
         return None

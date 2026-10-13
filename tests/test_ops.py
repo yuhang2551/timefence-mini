@@ -47,3 +47,38 @@ def test_signed_log_and_sqrt_keep_the_sign():
     x = pd.DataFrame({"A": [-4.0, 0.0, 4.0]})
     assert list(dsl.OPS["sqrt"].func(x)["A"]) == [-2.0, 0.0, 2.0]
     assert list(np.sign(dsl.OPS["log"].func(x)["A"])) == [-1.0, 0.0, 1.0]
+
+
+ROLLING = {
+    "ts_mean": lambda x, y, d: x.rolling(d, min_periods=d).mean(),
+    "ts_sum": lambda x, y, d: x.rolling(d, min_periods=d).sum(),
+    "ts_std": lambda x, y, d: x.rolling(d, min_periods=d).std(),
+    "ts_max": lambda x, y, d: x.rolling(d, min_periods=d).max(),
+    "ts_min": lambda x, y, d: x.rolling(d, min_periods=d).min(),
+    "ts_rank": lambda x, y, d: x.rolling(d, min_periods=d).rank(pct=True),
+    "ts_cov": lambda x, y, d: x.rolling(d, min_periods=d).cov(y),
+    "ts_corr": lambda x, y, d: x.rolling(d, min_periods=d).corr(y),
+}
+
+
+@pytest.mark.parametrize("name", list(ROLLING))
+@settings(max_examples=10, deadline=None)
+@given(
+    seed=st.integers(0, 10_000), d=st.integers(1, 15), scale=st.sampled_from([1e-3, 1.0, 1e4, 1e8])
+)
+def test_fast_rolling_matches_pandas(name, seed, d, scale):
+    """Our whole-array rolling functions must give pandas' answers, NaN for NaN."""
+    x, y = _panel(seed) * scale, _panel(seed + 7)
+    spec = dsl.OPS[name]
+    got = spec.func(*([x, y][: spec.n_series]), d)
+    want = ROLLING[name](x, y, d)
+    if name == "ts_corr":
+        want = want.clip(-1, 1)  # pandas can give values like 1.0000000000000002
+    pd.testing.assert_frame_equal(got, want, check_exact=False, rtol=1e-7, atol=1e-9 * scale)
+
+
+def test_rolling_rank_handles_ties():
+    x = pd.DataFrame({"A": [1.0, 1.0, 1.0, 2.0, 1.0]})
+    got = dsl.OPS["ts_rank"].func(x, 3)
+    want = x.rolling(3, min_periods=3).rank(pct=True)
+    pd.testing.assert_frame_equal(got, want)

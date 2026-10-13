@@ -61,6 +61,7 @@ def cmd_run(args) -> None:
         proposals_per_round=args.proposals, random_trials=args.trials, seed=args.seed,
         top_n=args.top_n, top_k=args.top_k, model=args.model, base_url=args.base_url,
         api_key_env=args.api_key_env, max_calls=args.max_calls, holdout=args.holdout,
+        holdout_start=args.holdout_start,
     )  # fmt: skip
     summary = run_experiment(store, cfg, args.out, _read_meta(root))
     bt = summary["backtest"] or {}
@@ -151,7 +152,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--base-url", default="https://api.deepseek.com")
     p.add_argument("--api-key-env", default="DEEPSEEK_API_KEY")
     p.add_argument("--max-calls", type=int, default=300)
-    p.add_argument("--holdout", action="store_true", help="also run the final 2025+ check")
+    p.add_argument("--holdout", action="store_true", help="also run the final check on later data")
+    p.add_argument(
+        "--holdout-start", default="2025-01-01", help="first day after the model's knowledge cutoff"
+    )
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("compare", help="compare finished runs")

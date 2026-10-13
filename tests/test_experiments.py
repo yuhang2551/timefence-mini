@@ -68,3 +68,14 @@ def test_cli(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "synthetic market saved" in out and "report:" in out
     assert json.loads((data / "meta.json").read_text())["source"] == "synthetic"
+
+
+def test_holdout_comes_after_everything_else(tmp_path):
+    store = synthetic_store(n_stocks=60, n_days=800, reversal=0.3)
+    start = store.calendar[-120]
+    cfg = RunConfig(method="handcrafted", top_n=40, top_k=8, holdout=True, holdout_start=str(start.date()))
+    summary = run_experiment(store, cfg, tmp_path / "h")
+    test_end = pd.Timestamp(summary["split"]["test"].split("~")[1])
+    assert test_end < start
+    assert summary["holdout"]["window"].startswith(str(start.date()))
+    assert "最终留出期" in (tmp_path / "h" / "report.md").read_text()

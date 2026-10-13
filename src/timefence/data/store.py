@@ -16,9 +16,10 @@ DERIVED_FIELDS = ("vwap", "returns")
 class MarketStore:
     """Holds daily bars and the stock list, and serves them as wide panels (dates x codes)."""
 
-    def __init__(self, bars: pd.DataFrame, stocks: pd.DataFrame):
-        bars = bars[BAR_COLUMNS].sort_values(["date", "code"]).reset_index(drop=True)
-        validate_bars(bars)
+    def __init__(self, bars: pd.DataFrame, stocks: pd.DataFrame, *, _checked: bool = False):
+        if not _checked:  # slices of a checked store skip the (slow) sort and checks
+            bars = bars[BAR_COLUMNS].sort_values(["date", "code"]).reset_index(drop=True)
+            validate_bars(bars)
         self._bars = bars
         self._stocks = stocks[STOCK_COLUMNS].set_index("code").sort_index()
         self._panels: dict[str, pd.DataFrame] = {}
@@ -42,7 +43,16 @@ class MarketStore:
 
     @cached_property
     def calendar(self) -> pd.DatetimeIndex:
-        return pd.DatetimeIndex(sorted(self._bars["date"].unique()), name="date")
+        dates = self._bars["date"].to_numpy()  # bars are sorted by date
+        first = np.r_[True, dates[1:] != dates[:-1]] if len(dates) else np.zeros(0, bool)
+        return pd.DatetimeIndex(dates[first], name="date")
+
+    @cached_property
+    def _grid(self) -> tuple[np.ndarray, np.ndarray, pd.Index]:
+        """Row and column position of every bar in the wide panels, computed once."""
+        cols, codes = pd.factorize(self._bars["code"], sort=True)
+        rows = np.searchsorted(self.calendar.to_numpy(), self._bars["date"].to_numpy())
+        return rows, cols, pd.Index(codes, name="code")
 
     @property
     def stocks(self) -> pd.DataFrame:
@@ -63,8 +73,17 @@ class MarketStore:
         return self._panels[field]
 
     def _pivot(self, column: str) -> pd.DataFrame:
-        wide = self._bars.pivot(index="date", columns="code", values=column)
-        return wide.reindex(self.calendar).sort_index(axis=1)
+        rows, cols, codes = self._grid
+        values = self._bars[column].to_numpy()
+        if np.issubdtype(values.dtype, np.datetime64):
+            wide = np.full(
+                (len(self.calendar), len(codes)), np.datetime64("NaT"), dtype=values.dtype
+            )
+        else:
+            wide = np.full((len(self.calendar), len(codes)), np.nan)
+            values = values.astype(float)
+        wide[rows, cols] = values
+        return pd.DataFrame(wide, index=self.calendar, columns=codes)
 
     def _build_panel(self, field: str) -> pd.DataFrame:
         if field.startswith("raw_"):
@@ -96,8 +115,10 @@ class MarketStore:
 
     def slice_until(self, last_day: pd.Timestamp) -> MarketStore:
         """A new store containing only bars on or before `last_day`. Used by leak tests."""
-        bars = self._bars[self._bars["date"] <= last_day]
-        return MarketStore(bars, self._stocks.reset_index())
+        end = int(
+            np.searchsorted(self._bars["date"].to_numpy(), pd.Timestamp(last_day), side="right")
+        )
+        return MarketStore(self._bars.iloc[:end], self._stocks.reset_index(), _checked=True)
 
 
 def forward_open_returns(store: MarketStore, horizon: int) -> pd.DataFrame:
