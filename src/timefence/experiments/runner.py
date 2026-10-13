@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -81,6 +82,11 @@ def choose_split(calendar: pd.DatetimeIndex) -> Split:
 def run_experiment(
     store: MarketStore, cfg: RunConfig, out: str | Path, data_info: dict | None = None
 ) -> dict:
+    if cfg.method == "agent" and not cfg.offline and not os.environ.get(cfg.api_key_env):
+        # Fail before the slow data preparation, not halfway through mining.
+        raise RuntimeError(
+            f"set the environment variable {cfg.api_key_env} to your API key, or use --offline"
+        )
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     # Train, valid and test all end before the holdout, so the holdout stays untouched.

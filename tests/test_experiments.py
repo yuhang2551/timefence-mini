@@ -81,3 +81,13 @@ def test_holdout_comes_after_everything_else(tmp_path):
     assert test_end < start
     assert summary["holdout"]["window"].startswith(str(start.date()))
     assert "最终留出期" in (tmp_path / "h" / "report.md").read_text()
+
+
+def test_agent_run_without_a_key_fails_fast(tmp_path, monkeypatch):
+    import pytest
+
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    store = synthetic_store(n_stocks=30, n_days=300)
+    with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY"):
+        run_experiment(store, RunConfig(method="agent"), tmp_path / "x")
+    assert not (tmp_path / "x").exists()

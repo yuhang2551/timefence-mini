@@ -15,6 +15,10 @@ import pandas as pd
 from timefence.data.store import MarketStore
 
 
+def _fmt(value, spec: str) -> str:
+    return "n/a" if value is None else format(value, spec)
+
+
 def _write_meta(root: Path, info: dict) -> None:
     info = {**info, "created": datetime.now(UTC).isoformat(timespec="seconds")}
     (root / "meta.json").write_text(json.dumps(info, indent=2, ensure_ascii=False))
@@ -69,7 +73,8 @@ def cmd_run(args) -> None:
     print(f"accepted {summary['mining']['counts']['accepted']}, kept after validation {kept}")
     if bt:
         print(
-            f"test window: annual excess {bt['excess_annual_return']:+.1%}, IR {bt['information_ratio']:+.2f}"
+            f"test window: annual excess {_fmt(bt.get('excess_annual_return'), '+.1%')}, "
+            f"IR {_fmt(bt.get('information_ratio'), '+.2f')}"
         )
     print(f"report: {Path(args.out) / 'report.md'}")
 
