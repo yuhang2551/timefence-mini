@@ -30,24 +30,30 @@ def liquidity_universe(
     last day as the full history does.
     """
     amount = source.panel("amount")
-    traded = source.panel("volume").notna()
+    traded = source.panel("volume").notna().to_numpy()
     stocks = source.stocks.reindex(amount.columns)
 
     list_date = pd.to_datetime(stocks["list_date"]).to_numpy()
-    age = amount.index.to_numpy()[:, None] - list_date[None, :]
-    seasoned = pd.DataFrame(
-        age >= np.timedelta64(min_listed_days, "D"), index=amount.index, columns=amount.columns
+    seasoned = amount.index.to_numpy()[:, None] - list_date[None, :] >= np.timedelta64(
+        min_listed_days, "D"
     )
-    allowed_board = ~stocks["board"].isin(exclude_boards)
+    allowed_board = ~stocks["board"].isin(exclude_boards).to_numpy()
 
-    avg_amount = pd.DataFrame(
-        rolling.rolling_mean(amount.to_numpy(dtype=float), lookback, max(1, lookback // 2)),
-        index=amount.index,
-        columns=amount.columns,
-    )
-    eligible = traded & seasoned & allowed_board
-    rank = avg_amount.where(eligible).rank(axis=1, ascending=False, method="first")
-    return rank <= top_n
+    avg_amount = rolling.rolling_mean(amount.to_numpy(dtype=float), lookback, max(1, lookback // 2))
+    score = np.where(traded & seasoned & allowed_board[None, :], avg_amount, np.nan)
+    return pd.DataFrame(_top_n(score, top_n), index=amount.index, columns=amount.columns)
+
+
+def _top_n(score: np.ndarray, n: int) -> np.ndarray:
+    """True for the n largest values in each row; NaN never counts."""
+    valid = ~np.isnan(score)
+    if n >= score.shape[1]:
+        return valid
+    filled = np.where(valid, score, -np.inf)
+    top = np.argpartition(-filled, n - 1, axis=1)[:, :n]
+    mask = np.zeros(score.shape, dtype=bool)
+    np.put_along_axis(mask, top, True, axis=1)
+    return mask & valid
 
 
 @dataclass(frozen=True)

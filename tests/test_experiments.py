@@ -73,7 +73,9 @@ def test_cli(tmp_path, capsys):
 def test_holdout_comes_after_everything_else(tmp_path):
     store = synthetic_store(n_stocks=60, n_days=800, reversal=0.3)
     start = store.calendar[-120]
-    cfg = RunConfig(method="handcrafted", top_n=40, top_k=8, holdout=True, holdout_start=str(start.date()))
+    cfg = RunConfig(
+        method="handcrafted", top_n=40, top_k=8, holdout=True, holdout_start=str(start.date())
+    )
     summary = run_experiment(store, cfg, tmp_path / "h")
     test_end = pd.Timestamp(summary["split"]["test"].split("~")[1])
     assert test_end < start

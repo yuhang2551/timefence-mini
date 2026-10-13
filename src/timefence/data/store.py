@@ -83,7 +83,7 @@ class MarketStore:
             wide = np.full((len(self.calendar), len(codes)), np.nan)
             values = values.astype(float)
         wide[rows, cols] = values
-        return pd.DataFrame(wide, index=self.calendar, columns=codes)
+        return pd.DataFrame(wide, index=self.calendar, columns=codes, copy=False)
 
     def _build_panel(self, field: str) -> pd.DataFrame:
         if field.startswith("raw_"):

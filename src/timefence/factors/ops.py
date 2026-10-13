@@ -35,7 +35,7 @@ def pct_change(x: Panel, d: int) -> Panel:
 
 
 def _wrap(values: np.ndarray, like: Panel) -> Panel:
-    return pd.DataFrame(values, index=like.index, columns=like.columns)
+    return pd.DataFrame(values, index=like.index, columns=like.columns, copy=False)
 
 
 def _arr(x: Panel) -> np.ndarray:
