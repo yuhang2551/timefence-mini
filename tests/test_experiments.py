@@ -2,7 +2,8 @@ import json
 
 import pandas as pd
 
-from timefence.cli import main
+from timefence.agents.llm import PLACEHOLDER_KEY
+from timefence.cli import _load_dotenv, main
 from timefence.data.synthetic import synthetic_store
 from timefence.experiments.report import write_comparison
 from timefence.experiments.runner import RunConfig, choose_split, run_experiment
@@ -91,3 +92,30 @@ def test_agent_run_without_a_key_fails_fast(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY"):
         run_experiment(store, RunConfig(method="agent"), tmp_path / "x")
     assert not (tmp_path / "x").exists()
+
+
+def test_agent_run_with_the_placeholder_key_fails_fast(tmp_path, monkeypatch):
+    import pytest
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", PLACEHOLDER_KEY)
+    store = synthetic_store(n_stocks=30, n_days=300)
+    with pytest.raises(RuntimeError, match="placeholder.*--offline"):
+        run_experiment(store, RunConfig(method="agent"), tmp_path / "x")
+    assert not (tmp_path / "x").exists()
+
+
+def test_dotenv_fills_only_unset_variables(tmp_path, monkeypatch):
+    env = tmp_path / ".env"
+    env.write_text(
+        "# comment\n\nTF_TEST_A=from-file\nexport TF_TEST_B='quoted'\nTF_TEST_C=from-file\n"
+    )
+    monkeypatch.delenv("TF_TEST_A", raising=False)
+    monkeypatch.delenv("TF_TEST_B", raising=False)
+    monkeypatch.setenv("TF_TEST_C", "from-shell")
+    _load_dotenv(env)
+    import os
+
+    assert os.environ["TF_TEST_A"] == "from-file"
+    assert os.environ["TF_TEST_B"] == "quoted"
+    assert os.environ["TF_TEST_C"] == "from-shell"
+    _load_dotenv(tmp_path / "missing.env")  # no file is fine

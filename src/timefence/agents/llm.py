@@ -15,6 +15,27 @@ from timefence.core.errors import BudgetExceeded
 
 Messages = list[dict[str, str]]
 
+PLACEHOLDER_KEY = "your-deepseek-api-key"  # the value shipped in .env.example
+
+
+def api_key_from_env(name: str) -> str:
+    """Return the API key held in environment variable `name`.
+
+    Raises if the variable is unset or still holds the placeholder from `.env.example`, so a
+    run stops before any work instead of failing on its first model call.
+    """
+    key = os.environ.get(name, "").strip()
+    if not key:
+        raise RuntimeError(
+            f"environment variable {name} is not set; set it to your API key or put it in .env "
+            "(never put the key in code or committed files)"
+        )
+    if key == PLACEHOLDER_KEY:
+        raise RuntimeError(
+            f"{name} is still the placeholder from .env.example; replace it with your real key"
+        )
+    return key
+
 
 @dataclass
 class LLMReply:
@@ -80,12 +101,7 @@ class OpenAICompatibleLLM:
 
     def _connect(self):
         if self._client is None:
-            key = os.environ.get(self.api_key_env)
-            if not key:
-                raise RuntimeError(
-                    f"environment variable {self.api_key_env} is not set; "
-                    "set it to your API key (never put the key in code or config files)"
-                )
+            key = api_key_from_env(self.api_key_env)
             from openai import OpenAI
 
             self._client = OpenAI(api_key=key, base_url=self.base_url, timeout=self.timeout)

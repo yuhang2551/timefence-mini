@@ -47,7 +47,8 @@ something from a higher layer, the design is wrong: pass it in as an argument or
 6. Acceptance rules live in code (`AcceptanceRules`), not in prompts.
 7. Cross-sectional operators (`rank`, `zscore`) compare only universe stocks of that day.
 8. The stock table a strategy sees has no names and shows a delisting only after it happened.
-9. API keys come from environment variables only. Never write a key into code, config or logs.
+9. API keys come from environment variables only (the CLI also reads a local, gitignored `.env`).
+   Never write a key into code, committed config or logs; `.env.example` holds a placeholder.
 
 ## Conventions
 

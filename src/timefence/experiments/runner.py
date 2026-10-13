@@ -11,14 +11,13 @@ from __future__ import annotations
 
 import json
 import math
-import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import pandas as pd
 
 from timefence.agents.graph import ResearchAgent
-from timefence.agents.llm import Budget, OpenAICompatibleLLM
+from timefence.agents.llm import Budget, OpenAICompatibleLLM, api_key_from_env
 from timefence.agents.memory import ResearchMemory
 from timefence.agents.offline import offline_llm
 from timefence.agents.tools import FactorLab
@@ -82,11 +81,12 @@ def choose_split(calendar: pd.DatetimeIndex) -> Split:
 def run_experiment(
     store: MarketStore, cfg: RunConfig, out: str | Path, data_info: dict | None = None
 ) -> dict:
-    if cfg.method == "agent" and not cfg.offline and not os.environ.get(cfg.api_key_env):
+    if cfg.method == "agent" and not cfg.offline:
         # Fail before the slow data preparation, not halfway through mining.
-        raise RuntimeError(
-            f"set the environment variable {cfg.api_key_env} to your API key, or use --offline"
-        )
+        try:
+            api_key_from_env(cfg.api_key_env)
+        except RuntimeError as exc:
+            raise RuntimeError(f"{exc}; or use --offline to run without a model") from None
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     # Train, valid and test all end before the holdout, so the holdout stays untouched.

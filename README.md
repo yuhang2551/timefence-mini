@@ -47,6 +47,8 @@ flowchart LR
 需要 Python 3.11+ 和 [uv](https://docs.astral.sh/uv/)。
 
 ```bash
+git clone https://github.com/yuhang2551/timefence-mini.git
+cd timefence-mini
 uv sync --group dev          # 安装依赖
 uv run pytest                # 跑全部测试
 ```
@@ -68,12 +70,14 @@ uv run timefence compare runs/demo-agent runs/demo-random
 uv sync --extra data                                   # 安装 akshare
 uv run timefence data download --out data/ashare       # 全部 A 股日线（含已退市），2016 年起，可断点续传
 uv run timefence audit --data data/ashare              # 先跑一遍防穿越自检
-export DEEPSEEK_API_KEY=...                            # 只放在环境变量里，不要写进代码或配置
-uv run timefence run --data data/ashare --out runs/agent --method agent
 uv run timefence run --data data/ashare --out runs/random --method random --trials 40
 uv run timefence run --data data/ashare --out runs/handcrafted --method handcrafted
+cp .env.example .env                                   # 把 DEEPSEEK_API_KEY 的占位符换成真实 key
+uv run timefence run --data data/ashare --out runs/agent --method agent
 uv run timefence compare runs/agent runs/random runs/handcrafted
 ```
+
+随机和经典因子两组不调用模型，没有 key 也能先跑。key 放在 `.env`（已在 `.gitignore` 里，不会提交）或环境变量里，不要写进代码；还是占位符时，Agent 运行会在开始前就报错。
 
 每次运行在 `runs/<名字>/` 下生成：`report.md`（中文报告）、`summary.json`、`memory.sqlite`（每个尝试过的因子和原因）、`transcript.jsonl`（每次模型调用的完整输入输出）、`nav.csv`、`fills.csv`。模型的回复按请求内容缓存在 `.cache/llm/`，重跑同一个实验不再花钱，结果也能复现。
 
@@ -102,7 +106,7 @@ src/timefence/
   experiments/  基线、实验流程（训练→验证→测试）、中文报告
   cli.py        命令行
 tests/          每一层的测试，重点是防穿越
-docs/           架构说明、设计决策（ADR）、读代码指南、面试问答
+docs/           架构说明、设计决策（ADR）、读代码指南
 ```
 
 依赖方向只能向下（`cli → experiments → agents → strategy → backtest/factors → data → core`），由 `uv run lint-imports` 检查。

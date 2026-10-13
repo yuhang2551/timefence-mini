@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import random
 import sys
 from datetime import UTC, datetime
@@ -17,6 +18,21 @@ from timefence.data.store import MarketStore
 
 def _fmt(value, spec: str) -> str:
     return "n/a" if value is None else format(value, spec)
+
+
+def _load_dotenv(path: Path = Path(".env")) -> None:
+    """Copy KEY=VALUE lines from a local .env file into the environment.
+
+    Variables that are already set win, so a key exported in the shell overrides the file.
+    """
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip().removeprefix("export ").strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
 
 
 def _write_meta(root: Path, info: dict) -> None:
@@ -185,6 +201,7 @@ def main(argv: list[str] | None = None) -> None:
         level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(message)s"
     )
     pd.set_option("display.width", 120)
+    _load_dotenv()
     args.func(args)
 
 

@@ -1,12 +1,19 @@
 import json
 import re
+from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
 from timefence.agents.graph import ResearchAgent
-from timefence.agents.llm import Budget, OpenAICompatibleLLM, ScriptedLLM, parse_json
+from timefence.agents.llm import (
+    PLACEHOLDER_KEY,
+    Budget,
+    OpenAICompatibleLLM,
+    ScriptedLLM,
+    parse_json,
+)
 from timefence.agents.memory import ResearchMemory
 from timefence.agents.tools import FactorLab
 from timefence.core.errors import BudgetExceeded, LeakError
@@ -171,3 +178,16 @@ def test_missing_key_gives_a_clear_error(tmp_path, monkeypatch):
     llm = OpenAICompatibleLLM(cache_dir=tmp_path)
     with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY is not set"):
         llm.complete([{"role": "user", "content": "hi"}])
+
+
+def test_placeholder_key_is_refused_before_any_call(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", PLACEHOLDER_KEY)
+    llm = OpenAICompatibleLLM(cache_dir=tmp_path)
+    with pytest.raises(RuntimeError, match="placeholder"):
+        llm.complete([{"role": "user", "content": "hi"}])
+    assert llm.budget.calls == 0
+
+
+def test_env_example_ships_the_placeholder():
+    example = Path(__file__).parents[1] / ".env.example"
+    assert f"DEEPSEEK_API_KEY={PLACEHOLDER_KEY}" in example.read_text().splitlines()

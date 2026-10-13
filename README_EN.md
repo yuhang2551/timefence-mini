@@ -47,6 +47,8 @@ flowchart LR
 Needs Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
+git clone https://github.com/yuhang2551/timefence-mini.git
+cd timefence-mini
 uv sync --group dev
 uv run pytest
 ```
@@ -66,12 +68,14 @@ Real data:
 uv sync --extra data                                   # akshare
 uv run timefence data download --out data/ashare       # all A-shares incl. delisted, from 2016, resumable
 uv run timefence audit --data data/ashare              # look-ahead self-check
-export DEEPSEEK_API_KEY=...                            # environment only, never in code or config
-uv run timefence run --data data/ashare --out runs/agent --method agent
 uv run timefence run --data data/ashare --out runs/random --method random --trials 40
 uv run timefence run --data data/ashare --out runs/handcrafted --method handcrafted
+cp .env.example .env                                   # replace the DEEPSEEK_API_KEY placeholder
+uv run timefence run --data data/ashare --out runs/agent --method agent
 uv run timefence compare runs/agent runs/random runs/handcrafted
 ```
+
+The random and handcrafted baselines never call a model, so they run without a key. Keep the key in `.env` (listed in `.gitignore`, never committed) or in an environment variable, never in code. While it is still the placeholder, an agent run stops with an error before doing any work.
 
 Each run writes `report.md` (in Chinese), `summary.json`, `memory.sqlite` (every factor tried and why it passed or failed), `transcript.jsonl` (every model call in full), `nav.csv` and `fills.csv` under `runs/<name>/`. Model replies are cached in `.cache/llm/` by request, so re-running an experiment costs nothing and gives the same result. Any OpenAI-compatible model works: `--model <name> --base-url <url> --api-key-env <variable>`.
 
