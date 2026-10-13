@@ -42,8 +42,8 @@ def test_scoring_dates_are_spaced_and_purged(ctx, window):
     assert (np.diff(positions) == ctx.horizon).all()
     # The label of the last scoring date ends inside the window.
     assert positions[-1] + 1 + ctx.horizon <= cal.get_loc(window.end)
-    with pytest.raises(ValueError, match="past the data"):
-        ctx.sample_dates(Window(window.start, window.end + np.timedelta64(30, "D")))
+    longer = ctx.sample_dates(Window(window.start, window.end + np.timedelta64(30, "D")))
+    assert longer.equals(dates)  # a window running past the data is cut at the data's end
 
 
 def test_overlap_with_the_library_is_measured(ctx, window):

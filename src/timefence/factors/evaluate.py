@@ -97,9 +97,8 @@ class ResearchContext:
         return parsed, self._factors[parsed.canonical]
 
     def sample_dates(self, window: Window) -> pd.DatetimeIndex:
+        """Every h-th trading day of the window, minus the last h+1 days (purged)."""
         days = window.clip(self.calendar)
-        if window.end > self.last_day:
-            raise ValueError(f"window {window} extends past the data ({self.last_day.date()})")
         days = days[: max(0, len(days) - (self.horizon + 1))]
         return days[:: self.horizon]
 
