@@ -168,9 +168,26 @@ def test_http_client_caches_and_counts(tmp_path, monkeypatch):
     assert first.text == second.text == '{"ok": true}'
     assert not first.cached and second.cached
     assert len(calls) == 1 and calls[0]["response_format"] == {"type": "json_object"}
+    assert calls[0]["model"] == "deepseek-flash"
+    assert calls[0]["extra_body"] == {"thinking": {"type": "disabled"}}
     assert llm.budget.calls == 1 and llm.budget.tokens == 120
     with pytest.raises(BudgetExceeded):
         llm.complete([{"role": "user", "content": "something new"}])
+
+
+def test_thinking_mode_changes_the_request_and_the_cache_key(tmp_path, monkeypatch):
+    messages = [{"role": "user", "content": "hi, reply in json"}]
+    sent = {}
+    for mode in ["disabled", "enabled", None]:
+        calls = []
+        llm = OpenAICompatibleLLM(cache_dir=tmp_path, thinking=mode)
+        monkeypatch.setattr(llm, "_connect", lambda calls=calls: _fake_client(calls))
+        assert not llm.complete(messages).cached  # no mode reuses another mode's reply
+        sent[mode] = calls[0]
+    assert sent["enabled"]["extra_body"] == {"thinking": {"type": "enabled"}}
+    assert "response_format" not in sent["enabled"]  # DeepSeek advises against both at once
+    assert "extra_body" not in sent[None]  # other providers never see the field
+    assert sent[None]["response_format"] == {"type": "json_object"}
 
 
 def test_missing_key_gives_a_clear_error(tmp_path, monkeypatch):

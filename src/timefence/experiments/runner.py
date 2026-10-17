@@ -53,13 +53,14 @@ class RunConfig:
     buffer: float = 0.5
     rebalance_every: int = 5
     valid_min_icir: float = 0.1
-    model: str = "deepseek-chat"
+    model: str = "deepseek-flash"
+    thinking: str | None = "disabled"  # DeepSeek thinking mode; None leaves the field out
     base_url: str = "https://api.deepseek.com"
     api_key_env: str = "DEEPSEEK_API_KEY"
     max_calls: int = 300
     llm_cache: str = ".cache/llm"
     holdout: bool = False
-    holdout_start: str = "2025-01-01"  # after the model's knowledge cutoff; check the model's docs
+    holdout_start: str = "2026-01-01"  # after the model's knowledge cutoff; check the model's docs
 
     @property
     def universe(self) -> UniverseConfig:
@@ -126,8 +127,9 @@ def _mine(store: MarketStore, cfg: RunConfig, split: Split, out: Path, run_id: s
             llm = offline_llm(cfg.seed)
         else:
             llm = OpenAICompatibleLLM(
-                model=cfg.model, base_url=cfg.base_url, api_key_env=cfg.api_key_env,
-                cache_dir=Path(cfg.llm_cache), budget=Budget(max_calls=cfg.max_calls),
+                model=cfg.model, thinking=cfg.thinking, base_url=cfg.base_url,
+                api_key_env=cfg.api_key_env, cache_dir=Path(cfg.llm_cache),
+                budget=Budget(max_calls=cfg.max_calls),
             )  # fmt: skip
         agent = ResearchAgent(
             llm, lab, memory, run_id, rounds=cfg.rounds, proposals_per_round=cfg.proposals_per_round,

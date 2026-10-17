@@ -79,7 +79,8 @@ def cmd_run(args) -> None:
     cfg = RunConfig(
         method=args.method, offline=args.offline, rounds=args.rounds,
         proposals_per_round=args.proposals, random_trials=args.trials, seed=args.seed,
-        top_n=args.top_n, top_k=args.top_k, model=args.model, base_url=args.base_url,
+        top_n=args.top_n, top_k=args.top_k, model=args.model,
+        thinking=None if args.thinking == "omit" else args.thinking, base_url=args.base_url,
         api_key_env=args.api_key_env, max_calls=args.max_calls, holdout=args.holdout,
         holdout_start=args.holdout_start,
     )  # fmt: skip
@@ -169,13 +170,19 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--top-n", type=int, default=500, help="universe size")
     p.add_argument("--top-k", type=int, default=50, help="stocks held")
-    p.add_argument("--model", default="deepseek-chat")
+    p.add_argument("--model", default="deepseek-flash")
+    p.add_argument(
+        "--thinking",
+        choices=["disabled", "enabled", "omit"],
+        default="disabled",
+        help="DeepSeek thinking mode; 'omit' leaves the field out for other providers",
+    )
     p.add_argument("--base-url", default="https://api.deepseek.com")
     p.add_argument("--api-key-env", default="DEEPSEEK_API_KEY")
     p.add_argument("--max-calls", type=int, default=300)
     p.add_argument("--holdout", action="store_true", help="also run the final check on later data")
     p.add_argument(
-        "--holdout-start", default="2025-01-01", help="first day after the model's knowledge cutoff"
+        "--holdout-start", default="2026-01-01", help="first day after the model's knowledge cutoff"
     )
     p.set_defaults(func=cmd_run)
 

@@ -21,7 +21,7 @@ flowchart LR
     J -->|通过验收的因子| L[因子库]
     L --> VA["验证集（2022）<br/>方向是否成立"]
     VA --> T["测试集（2023–2024）<br/>组合回测，只跑一次"]
-    T --> H["留出期（2025 起）<br/>模型知识截止之后"]
+    T --> H["留出期（2026 起）<br/>模型知识截止之后"]
 ```
 
 1. **挖掘（只用训练集）**：规划 Agent 根据研究记忆选一个方向（比如"短期反转""量价相关"），研究 Agent 写出几个因子表达式和理由，评估工具在训练集上算 IC、分组收益、换手和与已有因子的相关性，用写死在代码里的规则决定收不收，评审 Agent 总结这一轮学到了什么，写回记忆。
@@ -81,7 +81,7 @@ uv run timefence compare runs/agent runs/random runs/handcrafted
 
 每次运行在 `runs/<名字>/` 下生成：`report.md`（中文报告）、`summary.json`、`memory.sqlite`（每个尝试过的因子和原因）、`transcript.jsonl`（每次模型调用的完整输入输出）、`nav.csv`、`fills.csv`。模型的回复按请求内容缓存在 `.cache/llm/`，重跑同一个实验不再花钱，结果也能复现。
 
-其他兼容 OpenAI 协议的模型：`--model <名字> --base-url <地址> --api-key-env <环境变量名>`。
+默认用 DeepSeek 的 `deepseek-flash`，并关闭思考模式（DeepSeek 现在默认打开）：回复快、温度参数有效、成本低；要打开就加 `--thinking enabled`。其他兼容 OpenAI 协议的模型：`--model <名字> --base-url <地址> --api-key-env <环境变量名>`，服务商不认识思考模式参数时再加 `--thinking omit`。
 
 ## 结果
 

@@ -21,7 +21,7 @@ flowchart LR
     J -->|accepted factors| L[Factor library]
     L --> VA["Validation (2022)<br/>does the sign hold?"]
     VA --> T["Test (2023-2024)<br/>portfolio backtest, run once"]
-    T --> H["Holdout (2025 on)<br/>after the model's knowledge cutoff"]
+    T --> H["Holdout (2026 on)<br/>after the model's knowledge cutoff"]
 ```
 
 1. **Mining, training data only.** The planner reads the research memory and picks a theme (for example short-term reversal or price-volume correlation). The researcher proposes a few factor expressions with a rationale. The lab scores them on the training window (IC, quintile returns, turnover, correlation with accepted factors) and applies acceptance rules written in code. The reviewer writes lessons back to memory.
@@ -77,7 +77,7 @@ uv run timefence compare runs/agent runs/random runs/handcrafted
 
 The random and handcrafted baselines never call a model, so they run without a key. Keep the key in `.env` (listed in `.gitignore`, never committed) or in an environment variable, never in code. While it is still the placeholder, an agent run stops with an error before doing any work.
 
-Each run writes `report.md` (in Chinese), `summary.json`, `memory.sqlite` (every factor tried and why it passed or failed), `transcript.jsonl` (every model call in full), `nav.csv` and `fills.csv` under `runs/<name>/`. Model replies are cached in `.cache/llm/` by request, so re-running an experiment costs nothing and gives the same result. Any OpenAI-compatible model works: `--model <name> --base-url <url> --api-key-env <variable>`.
+Each run writes `report.md` (in Chinese), `summary.json`, `memory.sqlite` (every factor tried and why it passed or failed), `transcript.jsonl` (every model call in full), `nav.csv` and `fills.csv` under `runs/<name>/`. Model replies are cached in `.cache/llm/` by request, so re-running an experiment costs nothing and gives the same result. The default model is DeepSeek's `deepseek-flash` with thinking mode off (DeepSeek turns it on by default), which keeps replies fast, makes the temperature setting count and costs less; add `--thinking enabled` to turn it on. Any OpenAI-compatible model works: `--model <name> --base-url <url> --api-key-env <variable>`, plus `--thinking omit` if the provider does not know the thinking parameter.
 
 ## Results
 

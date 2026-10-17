@@ -84,9 +84,12 @@ class OpenAICompatibleLLM:
     and cost nothing the second time. The API key is read from the environment only.
     """
 
-    model: str = "deepseek-chat"
+    model: str = "deepseek-flash"
     base_url: str = "https://api.deepseek.com"
     api_key_env: str = "DEEPSEEK_API_KEY"
+    # DeepSeek's thinking switch, which its API turns on by default. "disabled" keeps replies
+    # fast and lets temperature take effect; None leaves the field out for other providers.
+    thinking: str | None = "disabled"
     cache_dir: Path = Path(".cache/llm")
     budget: Budget = field(default_factory=Budget)
     timeout: float = 120.0
@@ -97,7 +100,8 @@ class OpenAICompatibleLLM:
 
     @property
     def name(self) -> str:
-        return f"{self.model} @ {self.base_url}"
+        mode = f", thinking {self.thinking}" if self.thinking else ""
+        return f"{self.model}{mode} @ {self.base_url}"
 
     def _connect(self):
         if self._client is None:
@@ -109,6 +113,8 @@ class OpenAICompatibleLLM:
 
     def complete(self, messages: Messages, temperature: float = 0.7) -> LLMReply:
         request = {"model": self.model, "messages": messages, "temperature": temperature}
+        if self.thinking is not None:
+            request["thinking"] = self.thinking
         key = hashlib.sha256(
             json.dumps(request, sort_keys=True, ensure_ascii=False).encode()
         ).hexdigest()
@@ -122,11 +128,15 @@ class OpenAICompatibleLLM:
             return reply
 
         self.budget.check()
+        options: dict = {}
+        if self.thinking is not None:
+            options["extra_body"] = {"thinking": {"type": self.thinking}}
+        if self.thinking != "enabled":
+            # DeepSeek advises against JSON mode together with thinking. The prompts ask for
+            # JSON either way, and only `content` is read: the reasoning is a separate field.
+            options["response_format"] = {"type": "json_object"}
         response = self._connect().chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature,
-            response_format={"type": "json_object"},
+            model=self.model, messages=messages, temperature=temperature, **options
         )
         usage = response.usage
         reply = LLMReply(
