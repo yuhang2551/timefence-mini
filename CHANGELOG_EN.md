@@ -4,8 +4,17 @@
 
 ## Next
 
-1. Run on real data: the `audit` self-check, the random and handcrafted baselines, the agent with K2 Horizon, then `compare` for the comparison table, and fill in the README results.
-2. Once the whole pipeline runs, switch to Claude (`--provider claude`) and rerun all three, so they share the same holdout start.
+1. Run on real data somewhere that can reach Eastmoney: the `audit` self-check, the random and handcrafted baselines, the agent with Claude Haiku 5.5, then `compare` for the comparison table, and fill in the README results.
+2. For a stronger model, run the agent again with `--model claude-opus-5-5`: same knowledge cutoff, same holdout, no need to rerun the baselines.
+
+## 2026-10-28 (second update): Claude by default, starting with the cheapest model
+
+- The default provider is now Claude instead of K2 Horizon, with the cheapest model, Claude Haiku 5.5 ($0.10 input and $0.50 output per million tokens for prompts up to 100K tokens). Claude Opus 5.5 has the same June 2026 knowledge cutoff and is registered too, so `--model claude-opus-5-5` needs no separate holdout date.
+- Claude Haiku 5.5 has no server-side retry on another model, so its requests no longer ask for one.
+- K2 Horizon goes through IFM's own API, `https://api.ifm.ai/v1`, by default and needs only `K2_API_KEY`; `K2_BASE_URL` is for other hosts.
+- The first agent run with a real model: Claude Haiku 5.5 on simulated market data finished all 10 rounds in 31 calls (about 100K tokens, about $0.03). The planner, researcher and reviewer replies all parsed; of 40 expressions tried, 11 passed the training checks. Once the researcher answered in prose instead of JSON, and the loop treated it as an unusable reply and asked again without stopping. Numbers on simulated data are not research results; the run only shows that the whole pipeline works.
+- The model reply cache, `.cache/`, is now in `.gitignore`.
+- 143 tests pass.
 
 ## 2026-10-28: switchable model provider; the holdout follows the model
 

@@ -27,18 +27,20 @@ PLACEHOLDER_KEY = "your-deepseek-api-key"  # what earlier versions shipped in .e
 class Provider:
     """Defaults for one model provider.
 
-    `knowledge_bound` is the first day the default model cannot know about: the day after its
-    published knowledge cutoff, or its release date when no cutoff is published. The holdout
-    window starts there unless a run sets another date.
+    `knowledge_bound` is the first day the registered models (the default model and those in
+    `same_bound`) cannot know about: the day after their published knowledge cutoff, or the
+    release date when no cutoff is published. The holdout window starts there unless a run sets
+    another date.
     """
 
     model: str
     api_key_env: str
     knowledge_bound: str
     cutoff_published: bool  # False: no published cutoff, so the bound is the release date
+    same_bound: tuple[str, ...] = ()  # other models with the same knowledge bound
     api: str = "openai"  # "openai": an OpenAI-compatible endpoint; "anthropic": the Anthropic SDK
     base_url: str | None = None
-    base_url_env: str | None = None  # where the address comes from when there is no public one
+    base_url_env: str | None = None  # an environment variable that overrides `base_url`
     model_env: str | None = None  # for hosts that serve the same model under another name
     thinking: str | None = None  # DeepSeek's thinking switch
     efforts: tuple[str, ...] = ()  # accepted reasoning efforts, for models that take one
@@ -51,29 +53,37 @@ class Provider:
         url = os.environ.get(self.base_url_env, "").strip() if self.base_url_env else ""
         return url or self.base_url
 
+    def bound_for(self, model: str) -> str | None:
+        """The knowledge bound of `model`, or None when it is not registered here."""
+        return self.knowledge_bound if model in (self.default_model(), *self.same_bound) else None
+
 
 PROVIDERS: dict[str, Provider] = {
-    # K2 Horizon (MBZUAI's Institute of Foundation Models) has no single public endpoint: the
-    # address, and the model's name where the host does not use the Hugging Face name, come with
-    # the API access. It always reasons; its model card recommends high effort, temperature 1.0,
-    # top_p 0.95 and room for at least 32,768 output tokens.
-    "k2": Provider(
-        model="IFM/K2-Horizon-375B-A23B",
-        api_key_env="K2_API_KEY",
-        knowledge_bound="2026-09-03",
-        cutoff_published=False,
-        base_url_env="K2_BASE_URL",
-        model_env="K2_MODEL",
-        efforts=("low", "medium", "high"),
-        fixed_params={"temperature": 1.0, "top_p": 0.95, "max_tokens": 32768},
-    ),
+    # Claude Haiku 5.5 is the cheapest current Claude model. Claude Opus 5.5 has the same
+    # knowledge cutoff (June 2026), so `--model claude-opus-5-5` keeps the same holdout.
     "claude": Provider(
-        model="claude-opus-5-5",
+        model="claude-haiku-5-5",
+        same_bound=("claude-opus-5-5",),
         api_key_env="ANTHROPIC_API_KEY",
         knowledge_bound="2026-07-01",
         cutoff_published=True,
         api="anthropic",
         efforts=("low", "medium", "high", "xhigh", "max"),
+    ),
+    # K2 Horizon (MBZUAI's Institute of Foundation Models) through IFM's own API; K2_BASE_URL
+    # points it at another host, and K2_MODEL covers a host that names the model differently.
+    # It always reasons; its model card recommends high effort, temperature 1.0, top_p 0.95
+    # and room for at least 32,768 output tokens.
+    "k2": Provider(
+        model="IFM/K2-Horizon-375B-A23B",
+        api_key_env="K2_API_KEY",
+        knowledge_bound="2026-09-03",
+        cutoff_published=False,
+        base_url="https://api.ifm.ai/v1",
+        base_url_env="K2_BASE_URL",
+        model_env="K2_MODEL",
+        efforts=("low", "medium", "high"),
+        fixed_params={"temperature": 1.0, "top_p": 0.95, "max_tokens": 32768},
     ),
     # The deepseek-flash name moves to newer models over time; the bound is the release date of
     # the model serving it now (V4.1-Flash-1017).
@@ -250,6 +260,10 @@ class OpenAICompatibleLLM:
         return reply
 
 
+# Claude models without the API's server-side refusal fallback; their requests leave it out.
+NO_SERVER_FALLBACK = frozenset({"claude-haiku-5-5"})
+
+
 @dataclass
 class AnthropicLLM:
     """Claude through the official Anthropic SDK.
@@ -261,7 +275,7 @@ class AnthropicLLM:
     which the research loop handles like any other reply it cannot use.
     """
 
-    model: str = "claude-opus-5-5"
+    model: str = "claude-haiku-5-5"
     api_key_env: str = "ANTHROPIC_API_KEY"
     effort: str = "high"
     max_tokens: int = 16000
@@ -306,15 +320,16 @@ class AnthropicLLM:
             options["system"] = [
                 {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
             ]
+        if self.model not in NO_SERVER_FALLBACK:
+            # On a policy refusal the API reruns the request on an earlier Claude model.
+            options["betas"] = ["server-side-fallback-2026-07-01"]
+            options["fallbacks"] = "default"
         # Streamed so that a long reply cannot hit a request timeout.
         with self._connect().beta.messages.stream(
             model=self.model,
             max_tokens=self.max_tokens,
             messages=turns,
             output_config={"effort": self.effort},
-            # On a policy refusal the API reruns the request on an earlier Claude model.
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
             **options,
         ) as stream:
             response = stream.get_final_message()
@@ -368,10 +383,8 @@ def make_llm(
         )
     base_url = base_url or preset.default_base_url()
     if not base_url:
-        raise RuntimeError(
-            f"environment variable {preset.base_url_env} is not set; set it to the API address "
-            "you were given or put it in .env"
-        )
+        hint = f"set {preset.base_url_env} or " if preset.base_url_env else ""
+        raise RuntimeError(f"{provider} has no API address; {hint}pass --base-url")
     if thinking is None:
         thinking = preset.thinking
     elif thinking == "omit":

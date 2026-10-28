@@ -87,31 +87,31 @@ Agent 需要模型的 key。先复制配置模板：
 cp .env.example .env
 ```
 
-在 `.env` 里填上所用服务商的设置（默认 K2 Horizon：`K2_API_KEY` 填 key，`K2_BASE_URL` 填接口地址），再跑 Agent 和对比：
+在 `.env` 里填上所用服务商的 key（默认 Claude：`ANTHROPIC_API_KEY`），再跑 Agent 和对比：
 
 ```bash
 uv run timefence run --data data/ashare --out runs/agent --method agent
 uv run timefence compare runs/agent runs/random runs/handcrafted
 ```
 
-`.env` 已在 `.gitignore` 里，不会提交；key 也可以直接放在环境变量里，不要写进代码。key 或接口地址没填时，Agent 运行会在开始前就报错。
+`.env` 已在 `.gitignore` 里，不会提交；key 也可以直接放在环境变量里，不要写进代码。key 没填时，Agent 运行会在开始前就报错。
 
 每次运行在 `runs/<名字>/` 下生成：`report.md`（中文报告）、`summary.json`、`memory.sqlite`（每个尝试过的因子和原因）、`transcript.jsonl`（每次模型调用的完整输入输出）、`nav.csv`、`fills.csv`。模型的回复按请求内容缓存在 `.cache/llm/`，重跑同一个实验不再花钱，结果也能复现。
 
 ### 换模型
 
-模型层可以替换，`--provider` 选服务商，默认 `k2`：
+模型层可以替换，`--provider` 选服务商，默认 `claude`：
 
 | `--provider` | 默认模型 | 环境变量 | 留出期默认起点 |
 |---|---|---|---|
-| `k2`（默认） | K2 Horizon 375B（MBZUAI 基础模型研究院，`IFM/K2-Horizon-375B-A23B`） | `K2_API_KEY`、`K2_BASE_URL` | 2026-09-03（没有公布知识截止，按发布日） |
-| `claude` | `claude-opus-5-5` | `ANTHROPIC_API_KEY` | 2026-07-01（知识截止 2026 年 6 月） |
+| `claude`（默认） | `claude-haiku-5-5`（最便宜的 Claude 模型） | `ANTHROPIC_API_KEY` | 2026-07-01（知识截止 2026 年 6 月） |
+| `k2` | K2 Horizon 375B（MBZUAI 基础模型研究院，`IFM/K2-Horizon-375B-A23B`） | `K2_API_KEY` | 2026-09-03（没有公布知识截止，按发布日） |
 | `deepseek` | `deepseek-flash` | `DEEPSEEK_API_KEY` | 2026-10-17（没有公布知识截止，按当前版本发布日） |
 
-- K2 Horizon 走兼容 OpenAI 协议的接口。它没有统一的公开地址，接口地址填在 `K2_BASE_URL`；如果接口里的模型名不是 `IFM/K2-Horizon-375B-A23B`，填在 `K2_MODEL`（同一个模型换个名字，留出期不变）。它总是先推理再回答，`--effort low|medium|high` 调推理深度（默认 `high`），温度等采样参数按模型说明固定为 temperature 1.0、top_p 0.95。
+- Claude 走官方 Anthropic SDK，默认用最便宜的 Claude Haiku 5.5；`--model claude-opus-5-5` 更强也更贵，知识截止相同，留出期不变。它总是先思考再回答，用 `--effort` 调思考深度（默认 `high`），温度由模型自己定。
+- K2 Horizon 走兼容 OpenAI 协议的接口，默认用 IFM 自己的接口 `https://api.ifm.ai/v1`。换其他服务商的接口时，地址填在 `K2_BASE_URL`；模型名不是 `IFM/K2-Horizon-375B-A23B` 的，填在 `K2_MODEL`（同一个模型换个名字，留出期不变）。它总是先推理再回答，`--effort low|medium|high` 调推理深度（默认 `high`），温度等采样参数按模型说明固定为 temperature 1.0、top_p 0.95。
 - DeepSeek 也走兼容 OpenAI 协议的接口，默认关闭思考模式（DeepSeek 默认打开），回复快、成本低；要打开就加 `--thinking enabled`。
-- Claude 走官方 Anthropic SDK。它总是先思考再回答，用 `--effort` 调思考深度（默认 `high`），温度由模型自己定。
-- 其他兼容 OpenAI 协议的模型：`--provider deepseek --model <名字> --base-url <地址> --api-key-env <环境变量名>`，服务商不认识思考模式参数时再加 `--thinking omit`。用的不是表里的默认模型时，要用 `--holdout-start` 写明留出期从哪天开始（该模型知识截止的第二天）。
+- 其他兼容 OpenAI 协议的模型：`--provider deepseek --model <名字> --base-url <地址> --api-key-env <环境变量名>`，服务商不认识思考模式参数时再加 `--thinking omit`。用的不是上面登记过的模型时，要用 `--holdout-start` 写明留出期从哪天开始（该模型知识截止的第二天）。
 
 **留出期跟着模型走。** 测试集（2023–2024）挡的是反复试错带来的过拟合，但模型训练时很可能见过那几年的行情；只有模型知识截止之后的数据，才是它确实没见过的。所以留出期默认从所选模型的知识截止之后开始，训练、验证、测试集都在它之前。几次要放在一起比的运行（两个基线和 Agent）用同一个 `--provider`，留出期才一致。留出期至少要有 60 个交易日才跑：按 2026 年 10 月的数据，Claude 大约有 4 个月；K2 Horizon 只有一个半月左右，要到 2026 年 12 月初才够；DeepSeek 还差得远。
 

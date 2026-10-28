@@ -88,16 +88,20 @@ def test_holdout_comes_after_everything_else(tmp_path):
 
 def test_holdout_starts_where_the_provider_stops_knowing(monkeypatch):
     monkeypatch.delenv("K2_MODEL", raising=False)
-    k2 = holdout_boundary(RunConfig())
+    claude = holdout_boundary(RunConfig())
+    assert (claude["model"], claude["start"], claude["basis"]) == (
+        "claude-haiku-5-5", "2026-07-01", "cutoff")  # fmt: skip
+    assert holdout_boundary(RunConfig(model="claude-opus-5-5"))["start"] == "2026-07-01"
+    with pytest.raises(ValueError, match="--holdout-start"):
+        holdout_boundary(RunConfig(model="claude-sonnet-5-5"))
+    early = holdout_boundary(RunConfig(holdout_start="2026-01-01"))
+    assert early["basis"] == "manual" and early["before_bound"]
+    k2 = holdout_boundary(RunConfig(provider="k2"))
     assert (k2["start"], k2["basis"]) == ("2026-09-03", "release")
     monkeypatch.setenv("K2_MODEL", "k2-horizon")  # the same model under its host's name
-    assert holdout_boundary(RunConfig())["model"] == "k2-horizon"
+    assert holdout_boundary(RunConfig(provider="k2"))["model"] == "k2-horizon"
     with pytest.raises(ValueError, match="--holdout-start"):
-        holdout_boundary(RunConfig(model="k2-horizon-32b"))
-    claude = holdout_boundary(RunConfig(provider="claude"))
-    assert (claude["start"], claude["basis"]) == ("2026-07-01", "cutoff")
-    early = holdout_boundary(RunConfig(provider="claude", holdout_start="2026-01-01"))
-    assert early["basis"] == "manual" and early["before_bound"]
+        holdout_boundary(RunConfig(provider="k2", model="k2-horizon-32b"))
     with pytest.raises(ValueError, match="--holdout-start"):
         holdout_boundary(RunConfig(provider="deepseek", model="deepseek-pro"))
     other = holdout_boundary(
@@ -120,20 +124,18 @@ def test_comparison_flags_runs_with_different_splits(tmp_path):
 
 
 def test_agent_run_without_a_key_fails_fast(tmp_path, monkeypatch):
-    monkeypatch.delenv("K2_BASE_URL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("K2_API_KEY", raising=False)
     store = synthetic_store(n_stocks=30, n_days=300)
-    with pytest.raises(RuntimeError, match="K2_BASE_URL.*--offline"):
+    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY.*--offline"):
         run_experiment(store, RunConfig(method="agent"), tmp_path / "x")
-    monkeypatch.setenv("K2_BASE_URL", "https://k2.example.com/v1")
-    with pytest.raises(RuntimeError, match="K2_API_KEY"):
-        run_experiment(store, RunConfig(method="agent"), tmp_path / "x")
+    with pytest.raises(RuntimeError, match="K2_API_KEY.*--offline"):
+        run_experiment(store, RunConfig(method="agent", provider="k2"), tmp_path / "x")
     assert not (tmp_path / "x").exists()
 
 
 def test_agent_run_with_the_placeholder_key_fails_fast(tmp_path, monkeypatch):
-    monkeypatch.setenv("K2_BASE_URL", "https://k2.example.com/v1")
-    monkeypatch.setenv("K2_API_KEY", PLACEHOLDER_KEY)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", PLACEHOLDER_KEY)
     store = synthetic_store(n_stocks=30, n_days=300)
     with pytest.raises(RuntimeError, match="placeholder.*--offline"):
         run_experiment(store, RunConfig(method="agent"), tmp_path / "x")

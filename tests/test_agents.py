@@ -13,6 +13,7 @@ from timefence.agents.llm import (
     AnthropicLLM,
     Budget,
     OpenAICompatibleLLM,
+    Provider,
     ScriptedLLM,
     make_llm,
     parse_json,
@@ -235,11 +236,19 @@ def test_k2_sends_its_recommended_sampling_and_effort(tmp_path, monkeypatch):
     assert make_llm("k2", effort="low").reasoning_effort == "low"
 
 
-def test_k2_needs_the_address_of_its_api(monkeypatch):
+def test_k2_uses_ifm_api_unless_told_otherwise(monkeypatch):
     monkeypatch.delenv("K2_BASE_URL", raising=False)
-    with pytest.raises(RuntimeError, match="K2_BASE_URL is not set"):
-        make_llm("k2")
+    assert make_llm("k2").base_url == "https://api.ifm.ai/v1"
     assert make_llm("k2", base_url="https://other.example.com/v1").base_url.startswith("https")
+
+
+def test_a_provider_without_an_address_says_how_to_give_one(monkeypatch):
+    local = Provider(model="m", api_key_env="LOCAL_KEY", knowledge_bound="2026-01-01",
+                     cutoff_published=False, base_url_env="LOCAL_URL")  # fmt: skip
+    monkeypatch.setitem(PROVIDERS, "local", local)
+    monkeypatch.delenv("LOCAL_URL", raising=False)
+    with pytest.raises(RuntimeError, match="set LOCAL_URL or pass --base-url"):
+        make_llm("local")
 
 
 def _fake_anthropic(calls, message):
@@ -280,14 +289,23 @@ def test_claude_request_caches_the_system_prompt_and_sends_no_temperature(tmp_pa
     second = llm.complete(messages, temperature=0.8)
     assert first.text == '{"ok": true}' and second.cached and len(calls) == 1
     sent = calls[0]
-    assert sent["model"] == "claude-opus-5-5" and "temperature" not in sent
+    assert sent["model"] == "claude-haiku-5-5" and "temperature" not in sent
     assert sent["system"] == [
         {"type": "text", "text": "you mine factors", "cache_control": {"type": "ephemeral"}}
     ]
     assert sent["messages"] == [{"role": "user", "content": "propose one"}]
     assert sent["output_config"] == {"effort": "high"}
-    assert sent["fallbacks"] == "default" and sent["betas"] == ["server-side-fallback-2026-07-01"]
+    assert "fallbacks" not in sent and "betas" not in sent  # Haiku has no server-side fallback
     assert (first.prompt_tokens, first.completion_tokens) == (90, 20)
+
+
+def test_claude_models_with_a_server_side_fallback_ask_for_it(tmp_path, monkeypatch):
+    calls = []
+    llm = make_llm("claude", model="claude-opus-5-5", cache_dir=tmp_path)
+    monkeypatch.setattr(llm, "_connect", lambda: _fake_anthropic(calls, _claude_message()))
+    llm.complete([{"role": "user", "content": "propose one"}])
+    sent = calls[0]
+    assert sent["fallbacks"] == "default" and sent["betas"] == ["server-side-fallback-2026-07-01"]
 
 
 def test_claude_refusal_is_an_empty_reply(tmp_path, monkeypatch):

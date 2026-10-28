@@ -120,5 +120,5 @@ class LLM(Protocol):                  # agents/llm.py：真模型、离线替身
 | 加一个算子 | `factors/ops.py` 写函数，`factors/dsl.py` 的 `OPS` 登记 | `tests/test_ops.py` 会自动对它做"改未来不影响过去"测试 |
 | 加一个数据字段（如换手率） | `data/schema.py`、`data/ingest.py`、`MarketStore._build_panel`、`dsl.FIELDS` | 截断等价测试会自动覆盖 |
 | 加一个 Agent 角色 | `agents/prompts.py` 写提示词，`agents/graph.py` 加节点和边 | 用 `ScriptedLLM` 写流程测试 |
-| 换模型 | 命令行 `--provider`；新服务商在 `agents/llm.py` 的 `PROVIDERS` 里登记（默认模型、key 的环境变量、知识边界） | `tests/test_agents.py` 里用假客户端检查请求格式 |
+| 换模型 | 命令行 `--provider`；新服务商或新模型在 `agents/llm.py` 的 `PROVIDERS` 里登记（默认模型、知识边界相同的其他模型、key 的环境变量、知识边界） | `tests/test_agents.py` 里用假客户端检查请求格式 |
 | 换选股方式 | 在 `strategy/` 写一个满足 `Strategy` 的类 | 回测规则测试已覆盖成交部分 |

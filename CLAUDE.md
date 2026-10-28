@@ -52,7 +52,7 @@ something from a higher layer, the design is wrong: pass it in as an argument or
    (`K2_API_KEY`, `K2_BASE_URL`, `K2_MODEL`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`) with
    empty values.
 10. The holdout starts at the model's knowledge bound (`PROVIDERS` in `agents/llm.py`); a model
-    that is not a registered default needs an explicit `--holdout-start`.
+    not registered there needs an explicit `--holdout-start`.
 
 ## Conventions
 

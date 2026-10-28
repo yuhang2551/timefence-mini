@@ -83,31 +83,31 @@ The agent needs a model key. Copy the template first:
 cp .env.example .env
 ```
 
-Fill in your provider's settings in `.env` (K2 Horizon by default: the key in `K2_API_KEY`, the API address in `K2_BASE_URL`), then run the agent and the comparison:
+Fill in your provider's key in `.env` (Claude by default: `ANTHROPIC_API_KEY`), then run the agent and the comparison:
 
 ```bash
 uv run timefence run --data data/ashare --out runs/agent --method agent
 uv run timefence compare runs/agent runs/random runs/handcrafted
 ```
 
-`.env` is listed in `.gitignore` and never committed; an environment variable works too. Never put a key in code. Without a key or address, an agent run stops with an error before doing any work.
+`.env` is listed in `.gitignore` and never committed; an environment variable works too. Never put a key in code. Without a key, an agent run stops with an error before doing any work.
 
 Each run writes `report.md` (in Chinese), `summary.json`, `memory.sqlite` (every factor tried and why it passed or failed), `transcript.jsonl` (every model call in full), `nav.csv` and `fills.csv` under `runs/<name>/`. Model replies are cached in `.cache/llm/` by request, so re-running an experiment costs nothing and gives the same result.
 
 ### Choosing a model
 
-The model layer is replaceable. `--provider` picks the provider; the default is `k2`:
+The model layer is replaceable. `--provider` picks the provider; the default is `claude`:
 
 | `--provider` | Default model | Variables | Default holdout start |
 |---|---|---|---|
-| `k2` (default) | K2 Horizon 375B (MBZUAI's Institute of Foundation Models, `IFM/K2-Horizon-375B-A23B`) | `K2_API_KEY`, `K2_BASE_URL` | 2026-09-03 (no published cutoff, so the release date) |
-| `claude` | `claude-opus-5-5` | `ANTHROPIC_API_KEY` | 2026-07-01 (knowledge cutoff June 2026) |
+| `claude` (default) | `claude-haiku-5-5` (the cheapest Claude model) | `ANTHROPIC_API_KEY` | 2026-07-01 (knowledge cutoff June 2026) |
+| `k2` | K2 Horizon 375B (MBZUAI's Institute of Foundation Models, `IFM/K2-Horizon-375B-A23B`) | `K2_API_KEY` | 2026-09-03 (no published cutoff, so the release date) |
 | `deepseek` | `deepseek-flash` | `DEEPSEEK_API_KEY` | 2026-10-17 (no published cutoff, so the current version's release date) |
 
-- K2 Horizon goes through the OpenAI-compatible protocol. It has no single public address, so the API address goes in `K2_BASE_URL`; if your API names the model something other than `IFM/K2-Horizon-375B-A23B`, put that name in `K2_MODEL` (the same model under another name keeps its holdout). It always reasons before answering; `--effort low|medium|high` sets how hard (default `high`), and sampling follows the model card: temperature 1.0, top_p 0.95.
+- Claude goes through the official Anthropic SDK, with the cheapest model, Claude Haiku 5.5, by default; `--model claude-opus-5-5` is stronger and costs more, and has the same knowledge cutoff, so the holdout stays the same. It always thinks before answering; `--effort` sets how hard (default `high`), and the model sets its own temperature.
+- K2 Horizon goes through the OpenAI-compatible protocol, by default at IFM's own API, `https://api.ifm.ai/v1`. For another host, put its address in `K2_BASE_URL`, and if it names the model something other than `IFM/K2-Horizon-375B-A23B`, put that name in `K2_MODEL` (the same model under another name keeps its holdout). It always reasons before answering; `--effort low|medium|high` sets how hard (default `high`), and sampling follows the model card: temperature 1.0, top_p 0.95.
 - DeepSeek also goes through the OpenAI-compatible protocol, with thinking mode off by default (DeepSeek turns it on otherwise), which keeps replies fast and cheap; add `--thinking enabled` to turn it on.
-- Claude goes through the official Anthropic SDK. It always thinks before answering; `--effort` sets how hard (default `high`), and the model sets its own temperature.
-- Any other OpenAI-compatible model: `--provider deepseek --model <name> --base-url <url> --api-key-env <variable>`, plus `--thinking omit` if the provider does not know the thinking parameter. For any model other than a default in the table, set `--holdout-start` to the day after that model's knowledge cutoff.
+- Any other OpenAI-compatible model: `--provider deepseek --model <name> --base-url <url> --api-key-env <variable>`, plus `--thinking omit` if the provider does not know the thinking parameter. For any model not registered above, set `--holdout-start` to the day after that model's knowledge cutoff.
 
 **The holdout follows the model.** The test window (2023–2024) guards against overfitting through repeated trials, but the model has most likely seen those years in training; only data after its knowledge cutoff is truly new to it. So by default the holdout starts after the chosen model's knowledge cutoff, and train, validation and test all end before it. Give runs you compare (the two baselines and the agent) the same `--provider` so they share the holdout. The holdout needs at least 60 trading days to run: with data through October 2026, Claude has about 4 months; K2 Horizon has only about six weeks and reaches 60 trading days in early December 2026; DeepSeek is far from it.
 

@@ -56,7 +56,7 @@ class RunConfig:
     buffer: float = 0.5
     rebalance_every: int = 5
     valid_min_icir: float = 0.1
-    provider: str = "k2"  # k2 | claude | deepseek, see timefence.agents.llm.PROVIDERS
+    provider: str = "claude"  # claude | k2 | deepseek, see timefence.agents.llm.PROVIDERS
     model: str | None = None  # None: the provider's default model; likewise below
     thinking: str | None = None  # DeepSeek only; "omit" leaves the field out
     effort: str | None = None  # K2 Horizon and Claude; None means high
@@ -88,20 +88,20 @@ def holdout_boundary(cfg: RunConfig) -> dict:
     """The first day of the holdout, and why that day.
 
     The holdout must start after everything the model could know, so by default it starts at
-    the provider's knowledge bound. That bound describes the provider's default model only: a
-    run with another model has to set the date itself. Baseline runs follow the same rule, so a
-    baseline and an agent run with the same provider share the same windows.
+    the provider's knowledge bound. That bound describes the models registered with the
+    provider only: a run with another model has to set the date itself. Baseline runs follow
+    the same rule, so a baseline and an agent run with the same provider share the same windows.
     """
     preset = get_provider(cfg.provider)
     model = cfg.model or preset.default_model()
-    bound = preset.knowledge_bound if model == preset.default_model() else None
+    bound = preset.bound_for(model)
     if cfg.holdout_start:
         start, basis = cfg.holdout_start, "manual"
     elif bound:
         start, basis = bound, "cutoff" if preset.cutoff_published else "release"
     else:
         raise ValueError(
-            f"{model} is not the {cfg.provider} default model, so its knowledge cutoff is unknown "
+            f"{model} is not registered with {cfg.provider}, so its knowledge cutoff is unknown "
             "here; set --holdout-start to the first day after that model's knowledge cutoff"
         )
     start = str(pd.Timestamp(start).date())

@@ -174,8 +174,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--provider",
         choices=list(PROVIDERS),
-        default="k2",
-        help="model provider; it also sets where the holdout starts (default: k2, K2 Horizon)",
+        default="claude",
+        help="model provider; it also sets where the holdout starts (default: claude)",
     )
     p.add_argument("--model", help="default: the provider's model")
     p.add_argument(
@@ -188,7 +188,7 @@ def main(argv: list[str] | None = None) -> None:
         choices=["low", "medium", "high", "xhigh", "max"],
         help="K2 Horizon and Claude: how hard the model reasons (default: high)",
     )
-    p.add_argument("--base-url", help="default: the provider's endpoint (K2: $K2_BASE_URL)")
+    p.add_argument("--base-url", help="default: the provider's endpoint, or $K2_BASE_URL for K2")
     p.add_argument("--api-key-env", help="variable holding the key (default: the provider's)")
     p.add_argument("--max-calls", type=int, default=300)
     p.add_argument("--holdout", action="store_true", help="also run the final check on later data")
