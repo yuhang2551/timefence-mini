@@ -48,7 +48,11 @@ something from a higher layer, the design is wrong: pass it in as an argument or
 7. Cross-sectional operators (`rank`, `zscore`) compare only universe stocks of that day.
 8. The stock table a strategy sees has no names and shows a delisting only after it happened.
 9. API keys come from environment variables only (the CLI also reads a local, gitignored `.env`).
-   Never write a key into code, committed config or logs; `.env.example` holds a placeholder.
+   Never write a key into code, committed config or logs; `.env.example` lists the variables
+   (`K2_API_KEY`, `K2_BASE_URL`, `K2_MODEL`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`) with
+   empty values.
+10. The holdout starts at the model's knowledge bound (`PROVIDERS` in `agents/llm.py`); a model
+    that is not a registered default needs an explicit `--holdout-start`.
 
 ## Conventions
 

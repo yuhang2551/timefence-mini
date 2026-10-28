@@ -28,11 +28,27 @@ def _warnings(summary: dict) -> list[str]:
     model = summary.get("mining", {}).get("model", "")
     if "not a language model" in model:
         out.append("**挖掘用的是离线模板替身，不是大模型**。它只证明流程能跑，不代表大模型的能力。")
+    b = summary.get("holdout_boundary") or {}
+    if b.get("before_bound"):
+        out.append(
+            f"**留出期从 {b['start']} 开始，早于 {b['model']} 的知识边界 {b['knowledge_bound']}**，"
+            "模型可能见过其中一部分行情。"
+        )
     return out
+
+
+def _boundary(b: dict) -> str:
+    reason = {
+        "cutoff": f"{b['model']} 公布的知识截止之后",
+        "release": f"{b['model']} 没有公布知识截止，按发布日算",
+        "manual": "运行时指定",
+    }[b["basis"]]
+    return f"{b['start']} 起（{reason}），训练、验证、测试集都在它之前"
 
 
 def write_report(summary: dict, path: str | Path) -> None:
     cfg, mining = summary["config"], summary["mining"]
+    boundary = summary.get("holdout_boundary")
     lines = [f"# 运行报告：{summary['run_id']}", ""]
     for w in _warnings(summary):
         lines += [f"> ⚠️ {w}", ""]
@@ -45,6 +61,7 @@ def write_report(summary: dict, path: str | Path) -> None:
         f"- 数据：{summary.get('data', {}).get('source', 'unknown')}",
         f"- 训练集 {summary['split']['train']}，验证集 {summary['split']['valid']}，"
         f"测试集 {summary['split']['test']}",
+        *([f"- 留出期：{_boundary(boundary)}"] if boundary else []),
         f"- 股票池：每天成交额前 {cfg['top_n']} 只（上市满 {cfg['min_listed_days']} 天，剔除北交所）",
         f"- 预测周期：{cfg['horizon']} 个交易日（收盘出信号，次日开盘买入）",
         "",
@@ -116,13 +133,21 @@ def write_report(summary: dict, path: str | Path) -> None:
             f"年化超额 {_pct(h.get('excess_annual_return'))}，信息比率 {_num(h.get('information_ratio'))}。",
             "",
         ]
+    elif cfg.get("holdout"):
+        lines += [
+            "## 最终留出期",
+            "",
+            "没有跑：留出期起点之后不到 60 个交易日，或者没有因子进组合。",
+            "",
+        ]
 
     lines += [
         "## 怎么读这份报告",
         "",
         "- 训练集的数字是挖掘时看到的，天然偏乐观；验证集和测试集才说明因子有没有用。",
         "- 测试集只在所有选择都定下来之后跑一次。看了测试结果再回去改因子，测试集就不再是样本外。",
-        "- 大模型的知识里有历史行情，可能“记得”某段时间什么因子好用。留出期选在模型知识截止之后，才能排除这一点。",
+        "- 测试集挡住的是反复试错带来的过拟合，但大模型训练时可能见过测试集那几年的行情，“记得”什么因子好用。"
+        "留出期从模型知识截止之后开始（没有公布截止日的模型按发布日算），才能排除这一点。",
         "",
     ]
     Path(path).write_text("\n".join(lines), encoding="utf-8")
@@ -133,8 +158,11 @@ def write_comparison(run_dirs: list[str | Path], path: str | Path) -> str:
         "| 运行 | 方法 | 打分次数 | 训练通过 | 验证保留 | 保留因子测试 RankIC 均值 | 年化超额 | 信息比率 | 年换手 |",
         "|---|---|---|---|---|---|---|---|---|",
     ]
+    splits = set()  # the table compares test windows, so the splits have to match
+    mismatch = ["> ⚠️ 这几次运行的训练、验证、测试划分不一样，数字不能直接比较。", ""]
     for d in run_dirs:
         s = json.loads((Path(d) / "summary.json").read_text(encoding="utf-8"))
+        splits.add(tuple(s["split"].values()))
         kept = [f for f in s["factors"] if f["kept"]]
         tests = [f["test"]["rank_ic"] * f["direction"] for f in kept if f.get("test")]
         mean_ic = sum(tests) / len(tests) if tests else None
@@ -150,6 +178,7 @@ def write_comparison(run_dirs: list[str | Path], path: str | Path) -> str:
         [
             "# 方法对比",
             "",
+            *(mismatch if len(splits) > 1 else []),
             "测试 RankIC 已按训练集方向调整，正数表示方向在测试集上依然成立。",
             "",
             *rows,

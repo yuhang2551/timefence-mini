@@ -9,9 +9,12 @@ import pytest
 from timefence.agents.graph import ResearchAgent
 from timefence.agents.llm import (
     PLACEHOLDER_KEY,
+    PROVIDERS,
+    AnthropicLLM,
     Budget,
     OpenAICompatibleLLM,
     ScriptedLLM,
+    make_llm,
     parse_json,
 )
 from timefence.agents.memory import ResearchMemory
@@ -143,6 +146,7 @@ def test_garbage_replies_do_not_crash_the_loop(train):
 
 def test_parse_json():
     assert parse_json('```json\n{"a": 1}\n```') == {"a": 1}
+    assert parse_json('<think>maybe {"a": 0}?</think>\n{"a": 1}') == {"a": 1}
     with pytest.raises(ValueError):
         parse_json("[1, 2]")
 
@@ -205,6 +209,106 @@ def test_placeholder_key_is_refused_before_any_call(tmp_path, monkeypatch):
     assert llm.budget.calls == 0
 
 
-def test_env_example_ships_the_placeholder():
-    example = Path(__file__).parents[1] / ".env.example"
-    assert f"DEEPSEEK_API_KEY={PLACEHOLDER_KEY}" in example.read_text().splitlines()
+def test_env_example_leaves_every_value_empty():
+    lines = (Path(__file__).parents[1] / ".env.example").read_text().splitlines()
+    entries = [line for line in lines if line and not line.startswith("#")]
+    names = [n for p in PROVIDERS.values() for n in (p.api_key_env, p.base_url_env, p.model_env)]
+    assert sorted(entries) == sorted(f"{n}=" for n in names if n)
+
+
+def test_k2_sends_its_recommended_sampling_and_effort(tmp_path, monkeypatch):
+    monkeypatch.setenv("K2_BASE_URL", "https://k2.example.com/v1")
+    monkeypatch.delenv("K2_MODEL", raising=False)
+    calls = []
+    llm = make_llm("k2", cache_dir=tmp_path)
+    assert (llm.base_url, llm.api_key_env) == ("https://k2.example.com/v1", "K2_API_KEY")
+    assert llm.name == "IFM/K2-Horizon-375B-A23B, effort high @ k2.example.com"
+    monkeypatch.setattr(llm, "_connect", lambda: _fake_client(calls))
+    llm.complete([{"role": "user", "content": "hi, reply in json"}], temperature=0.3)
+    sent = calls[0]
+    assert sent["model"] == "IFM/K2-Horizon-375B-A23B"
+    assert (sent["temperature"], sent["top_p"], sent["max_tokens"]) == (1.0, 0.95, 32768)
+    assert sent["extra_body"] == {"chat_template_kwargs": {"reasoning_effort": "high"}}
+    assert "response_format" not in sent
+    monkeypatch.setenv("K2_MODEL", "k2-horizon")  # a host that names the model differently
+    assert make_llm("k2", effort="low").model == "k2-horizon"
+    assert make_llm("k2", effort="low").reasoning_effort == "low"
+
+
+def test_k2_needs_the_address_of_its_api(monkeypatch):
+    monkeypatch.delenv("K2_BASE_URL", raising=False)
+    with pytest.raises(RuntimeError, match="K2_BASE_URL is not set"):
+        make_llm("k2")
+    assert make_llm("k2", base_url="https://other.example.com/v1").base_url.startswith("https")
+
+
+def _fake_anthropic(calls, message):
+    class Stream:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def get_final_message(self):
+            return message
+
+    def stream(**kwargs):
+        calls.append(kwargs)
+        return Stream()
+
+    return SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(stream=stream)))
+
+
+def _claude_message(stop_reason="end_turn", text='{"ok": true}'):
+    content = [SimpleNamespace(type="thinking", thinking="...")]
+    if text:
+        content.append(SimpleNamespace(type="text", text=text))
+    usage = SimpleNamespace(input_tokens=10, cache_creation_input_tokens=80,
+                            cache_read_input_tokens=0, output_tokens=20)  # fmt: skip
+    return SimpleNamespace(stop_reason=stop_reason, content=content, usage=usage)
+
+
+def test_claude_request_caches_the_system_prompt_and_sends_no_temperature(tmp_path, monkeypatch):
+    calls = []
+    llm = make_llm("claude", cache_dir=tmp_path)
+    assert isinstance(llm, AnthropicLLM) and llm.api_key_env == "ANTHROPIC_API_KEY"
+    monkeypatch.setattr(llm, "_connect", lambda: _fake_anthropic(calls, _claude_message()))
+    messages = [{"role": "system", "content": "you mine factors"},
+                {"role": "user", "content": "propose one"}]  # fmt: skip
+    first = llm.complete(messages, temperature=0.8)
+    second = llm.complete(messages, temperature=0.8)
+    assert first.text == '{"ok": true}' and second.cached and len(calls) == 1
+    sent = calls[0]
+    assert sent["model"] == "claude-opus-5-5" and "temperature" not in sent
+    assert sent["system"] == [
+        {"type": "text", "text": "you mine factors", "cache_control": {"type": "ephemeral"}}
+    ]
+    assert sent["messages"] == [{"role": "user", "content": "propose one"}]
+    assert sent["output_config"] == {"effort": "high"}
+    assert sent["fallbacks"] == "default" and sent["betas"] == ["server-side-fallback-2026-07-01"]
+    assert (first.prompt_tokens, first.completion_tokens) == (90, 20)
+
+
+def test_claude_refusal_is_an_empty_reply(tmp_path, monkeypatch):
+    llm = make_llm("claude", cache_dir=tmp_path)
+    refusal = _claude_message(stop_reason="refusal", text="")
+    monkeypatch.setattr(llm, "_connect", lambda: _fake_anthropic([], refusal))
+    assert llm.complete([{"role": "user", "content": "hi"}]).text == ""
+
+
+def test_make_llm_checks_its_settings():
+    with pytest.raises(ValueError, match="unknown provider"):
+        make_llm("gpt")
+    with pytest.raises(ValueError, match="effort"):
+        make_llm("claude", thinking="disabled")
+    with pytest.raises(ValueError, match="base URL"):
+        make_llm("claude", base_url="https://example.com")
+    with pytest.raises(ValueError, match="does not take effort"):
+        make_llm("deepseek", effort="high")
+    with pytest.raises(ValueError, match="choose from low, medium, high"):
+        make_llm("k2", effort="max", base_url="https://k2.example.com/v1")
+    assert make_llm("claude", effort="max").effort == "max"
+    assert make_llm("deepseek", thinking="omit").thinking is None
+    assert make_llm("deepseek").fixed_params is None
+    assert make_llm("deepseek", model="deepseek-pro").model == "deepseek-pro"

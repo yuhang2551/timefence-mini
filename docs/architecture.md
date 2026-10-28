@@ -25,7 +25,7 @@ flowchart TB
 | factors | 因子表达式的解析与计算、因子打分 | `dsl.parse`、`dsl.evaluate`、`ResearchContext`、`evaluate_factor`、`AcceptanceRules` |
 | backtest | 按 A 股规则模拟成交，算绩效 | `MarketTape`、`Broker`、`run_backtest`、`performance` |
 | strategy | 把多个因子合成一个分数，选股 | `FactorModel`、`TopKStrategy` |
-| agents | 三个 LLM 角色的流程、记忆、工具、模型客户端 | `ResearchAgent`、`FactorLab`、`ResearchMemory`、`OpenAICompatibleLLM` |
+| agents | 三个 LLM 角色的流程、记忆、工具、模型客户端 | `ResearchAgent`、`FactorLab`、`ResearchMemory`、`make_llm` |
 | experiments | 训练 → 验证 → 测试的完整实验、基线、报告 | `run_experiment`、`run_random`、`run_handcrafted`、`write_report` |
 
 `backtest` 和 `factors` 在同一层，互相不依赖：回测不关心信号怎么来的，因子也不关心怎么交易。
@@ -69,7 +69,7 @@ sequenceDiagram
 
 1. **验证**：在 2022 年上重新算每个入库因子的 RankIC，方向和训练集一致、|ICIR| ≥ 0.1 的保留。
 2. **测试**：保留的因子按训练集方向合成打分（截面 z 分数的平均），TopK 等权持有，按 A 股规则回测 2023–2024，只跑一次。
-3. **留出期**（可选）：默认 2026 年起的数据，在模型知识截止之后（换模型时用 `--holdout-start` 调整），最后确认一次。
+3. **留出期**（可选）：从所用模型的知识截止之后开始（起点由 `--provider` 决定，也可以用 `--holdout-start` 指定），最后确认一次。训练、验证、测试集都在它之前。
 
 ## 4 Agent 流程（LangGraph）
 
@@ -120,5 +120,5 @@ class LLM(Protocol):                  # agents/llm.py：真模型、离线替身
 | 加一个算子 | `factors/ops.py` 写函数，`factors/dsl.py` 的 `OPS` 登记 | `tests/test_ops.py` 会自动对它做"改未来不影响过去"测试 |
 | 加一个数据字段（如换手率） | `data/schema.py`、`data/ingest.py`、`MarketStore._build_panel`、`dsl.FIELDS` | 截断等价测试会自动覆盖 |
 | 加一个 Agent 角色 | `agents/prompts.py` 写提示词，`agents/graph.py` 加节点和边 | 用 `ScriptedLLM` 写流程测试 |
-| 换模型 | 命令行 `--model --base-url --api-key-env` | 无 |
+| 换模型 | 命令行 `--provider`；新服务商在 `agents/llm.py` 的 `PROVIDERS` 里登记（默认模型、key 的环境变量、知识边界） | `tests/test_agents.py` 里用假客户端检查请求格式 |
 | 换选股方式 | 在 `strategy/` 写一个满足 `Strategy` 的类 | 回测规则测试已覆盖成交部分 |

@@ -10,6 +10,7 @@ then test the frozen result once on data nobody has looked at.
 from __future__ import annotations
 
 import json
+import logging
 import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -17,7 +18,7 @@ from pathlib import Path
 import pandas as pd
 
 from timefence.agents.graph import ResearchAgent
-from timefence.agents.llm import Budget, OpenAICompatibleLLM, api_key_from_env
+from timefence.agents.llm import LLM, Budget, api_key_from_env, get_provider, make_llm
 from timefence.agents.memory import ResearchMemory
 from timefence.agents.offline import offline_llm
 from timefence.agents.tools import FactorLab
@@ -37,6 +38,8 @@ DEFAULT_SPLIT = (
     ("2023-01-01", "2024-12-31"),
 )
 
+log = logging.getLogger(__name__)
+
 
 @dataclass
 class RunConfig:
@@ -53,14 +56,16 @@ class RunConfig:
     buffer: float = 0.5
     rebalance_every: int = 5
     valid_min_icir: float = 0.1
-    model: str = "deepseek-flash"
-    thinking: str | None = "disabled"  # DeepSeek thinking mode; None leaves the field out
-    base_url: str = "https://api.deepseek.com"
-    api_key_env: str = "DEEPSEEK_API_KEY"
+    provider: str = "k2"  # k2 | claude | deepseek, see timefence.agents.llm.PROVIDERS
+    model: str | None = None  # None: the provider's default model; likewise below
+    thinking: str | None = None  # DeepSeek only; "omit" leaves the field out
+    effort: str | None = None  # K2 Horizon and Claude; None means high
+    base_url: str | None = None
+    api_key_env: str | None = None
     max_calls: int = 300
     llm_cache: str = ".cache/llm"
     holdout: bool = False
-    holdout_start: str = "2026-01-01"  # after the model's knowledge cutoff; check the model's docs
+    holdout_start: str | None = None  # None: the provider's knowledge bound
 
     @property
     def universe(self) -> UniverseConfig:
@@ -79,25 +84,51 @@ def choose_split(calendar: pd.DatetimeIndex) -> Split:
     )
 
 
+def holdout_boundary(cfg: RunConfig) -> dict:
+    """The first day of the holdout, and why that day.
+
+    The holdout must start after everything the model could know, so by default it starts at
+    the provider's knowledge bound. That bound describes the provider's default model only: a
+    run with another model has to set the date itself. Baseline runs follow the same rule, so a
+    baseline and an agent run with the same provider share the same windows.
+    """
+    preset = get_provider(cfg.provider)
+    model = cfg.model or preset.default_model()
+    bound = preset.knowledge_bound if model == preset.default_model() else None
+    if cfg.holdout_start:
+        start, basis = cfg.holdout_start, "manual"
+    elif bound:
+        start, basis = bound, "cutoff" if preset.cutoff_published else "release"
+    else:
+        raise ValueError(
+            f"{model} is not the {cfg.provider} default model, so its knowledge cutoff is unknown "
+            "here; set --holdout-start to the first day after that model's knowledge cutoff"
+        )
+    start = str(pd.Timestamp(start).date())
+    early = bound is not None and start < bound
+    if early:
+        log.warning("the holdout starts on %s, before %s's knowledge bound %s: the model may "
+                    "have seen part of it", start, model, bound)  # fmt: skip
+    return {"start": start, "basis": basis, "model": model, "knowledge_bound": bound,
+            "before_bound": early}  # fmt: skip
+
+
 def run_experiment(
     store: MarketStore, cfg: RunConfig, out: str | Path, data_info: dict | None = None
 ) -> dict:
-    if cfg.method == "agent" and not cfg.offline:
-        # Fail before the slow data preparation, not halfway through mining.
-        try:
-            api_key_from_env(cfg.api_key_env)
-        except RuntimeError as exc:
-            raise RuntimeError(f"{exc}; or use --offline to run without a model") from None
+    # Check the settings and the key before the slow data preparation, not halfway through.
+    boundary = holdout_boundary(cfg)
+    llm = _language_model(cfg) if cfg.method == "agent" else None
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     # Train, valid and test all end before the holdout, so the holdout stays untouched.
-    split = choose_split(store.calendar[store.calendar < pd.Timestamp(cfg.holdout_start)])
+    split = choose_split(store.calendar[store.calendar < pd.Timestamp(boundary["start"])])
     run_id = out.name
 
-    mining, lab_reports = _mine(store, cfg, split, out, run_id)
+    mining, lab_reports = _mine(store, cfg, split, out, run_id, llm)
     factors = _validate(store, cfg, split, lab_reports)
     backtest = _test(store, cfg, split, factors, out)
-    holdout = _holdout(store, cfg, factors) if cfg.holdout else None
+    holdout = _holdout(store, cfg, factors, boundary["start"]) if cfg.holdout else None
 
     summary = {
         "run_id": run_id,
@@ -107,6 +138,7 @@ def run_experiment(
         "mining": mining,
         "factors": factors,
         "backtest": backtest,
+        "holdout_boundary": boundary,
         "holdout": holdout,
     }
     (out / "summary.json").write_text(json.dumps(_clean(summary), indent=2, ensure_ascii=False))
@@ -116,21 +148,30 @@ def run_experiment(
     return summary
 
 
-def _mine(store: MarketStore, cfg: RunConfig, split: Split, out: Path, run_id: str):
+def _language_model(cfg: RunConfig) -> LLM:
+    if cfg.offline:
+        return offline_llm(cfg.seed)
+    try:
+        llm = make_llm(
+            cfg.provider, model=cfg.model, base_url=cfg.base_url, api_key_env=cfg.api_key_env,
+            thinking=cfg.thinking, effort=cfg.effort, cache_dir=Path(cfg.llm_cache),
+            budget=Budget(max_calls=cfg.max_calls),
+        )  # fmt: skip
+        api_key_from_env(cfg.api_key_env or get_provider(cfg.provider).api_key_env)
+    except RuntimeError as exc:
+        raise RuntimeError(f"{exc}; or use --offline to run without a model") from None
+    return llm
+
+
+def _mine(
+    store: MarketStore, cfg: RunConfig, split: Split, out: Path, run_id: str, llm: LLM | None
+):
     """Everything here sees data up to the end of the training window and nothing later."""
     train_store = store.slice_until(split.train.end)
     ctx = ResearchContext(train_store, cfg.universe.build(train_store), cfg.horizon)
     lab = FactorLab(ctx, split.train, AcceptanceRules())
     memory = ResearchMemory(out / "memory.sqlite")
     if cfg.method == "agent":
-        if cfg.offline:
-            llm = offline_llm(cfg.seed)
-        else:
-            llm = OpenAICompatibleLLM(
-                model=cfg.model, thinking=cfg.thinking, base_url=cfg.base_url,
-                api_key_env=cfg.api_key_env, cache_dir=Path(cfg.llm_cache),
-                budget=Budget(max_calls=cfg.max_calls),
-            )  # fmt: skip
         agent = ResearchAgent(
             llm, lab, memory, run_id, rounds=cfg.rounds, proposals_per_round=cfg.proposals_per_round,
             horizon=cfg.horizon, transcript=out / "transcript.jsonl",
@@ -193,9 +234,9 @@ def _test(
     return {"window": str(split.test), "n_factors": len(kept), **result.summary()}
 
 
-def _holdout(store: MarketStore, cfg: RunConfig, factors: list[dict]) -> dict | None:
+def _holdout(store: MarketStore, cfg: RunConfig, factors: list[dict], start: str) -> dict | None:
     """The final check on data after the test window. Run it once, after everything is frozen."""
-    days = store.calendar[store.calendar >= pd.Timestamp(cfg.holdout_start)]
+    days = store.calendar[store.calendar >= pd.Timestamp(start)]
     kept = [r for r in factors if r["kept"]]
     if len(days) < 60 or not kept:
         return None

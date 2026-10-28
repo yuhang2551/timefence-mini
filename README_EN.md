@@ -21,7 +21,7 @@ flowchart LR
     J -->|accepted factors| L[Factor library]
     L --> VA["Validation (2022)<br/>does the sign hold?"]
     VA --> T["Test (2023-2024)<br/>portfolio backtest, run once"]
-    T --> H["Holdout (2026 on)<br/>after the model's knowledge cutoff"]
+    T --> H["Holdout<br/>after the model's knowledge cutoff"]
 ```
 
 1. **Mining, training data only.** The planner reads the research memory and picks a theme (for example short-term reversal or price-volume correlation). The researcher proposes a few factor expressions with a rationale. The lab scores them on the training window (IC, quintile returns, turnover, correlation with accepted factors) and applies acceptance rules written in code. The reviewer writes lessons back to memory.
@@ -40,7 +40,7 @@ flowchart LR
 | Today's index members leak survivorship | The universe is the top 500 stocks by 20-day turnover on each day, delisted stocks included | `tests/test_universe.py` |
 | Stock names leak the future (a later *ST) | The stock table a strategy sees has no names, and a delisting shows only after it happened | `tests/test_fence.py` |
 | Label periods overlap the next window | The last h+1 days of every window are not scored (purge) | `tests/test_evaluate.py` |
-| The LLM remembers market history | The final check runs on a holdout after the model's knowledge cutoff | `--holdout` |
+| The LLM remembers market history | The final check runs on a holdout that starts after the chosen model's knowledge cutoff | `--holdout` |
 
 ## Quick start
 
@@ -62,22 +62,54 @@ uv run timefence run --data data/synth --out runs/demo-random --method random --
 uv run timefence compare runs/demo-agent runs/demo-random
 ```
 
-Real data:
+Real data: install the data dependency, download all A-share daily bars (delisted stocks included, from 2016, resumable), then run the look-ahead self-check:
 
 ```bash
-uv sync --extra data                                   # akshare
-uv run timefence data download --out data/ashare       # all A-shares incl. delisted, from 2016, resumable
-uv run timefence audit --data data/ashare              # look-ahead self-check
+uv sync --extra data
+uv run timefence data download --out data/ashare
+uv run timefence audit --data data/ashare
+```
+
+The two baselines never call a model, so they run without a key:
+
+```bash
 uv run timefence run --data data/ashare --out runs/random --method random --trials 40
 uv run timefence run --data data/ashare --out runs/handcrafted --method handcrafted
-cp .env.example .env                                   # replace the DEEPSEEK_API_KEY placeholder
+```
+
+The agent needs a model key. Copy the template first:
+
+```bash
+cp .env.example .env
+```
+
+Fill in your provider's settings in `.env` (K2 Horizon by default: the key in `K2_API_KEY`, the API address in `K2_BASE_URL`), then run the agent and the comparison:
+
+```bash
 uv run timefence run --data data/ashare --out runs/agent --method agent
 uv run timefence compare runs/agent runs/random runs/handcrafted
 ```
 
-The random and handcrafted baselines never call a model, so they run without a key. Keep the key in `.env` (listed in `.gitignore`, never committed) or in an environment variable, never in code. While it is still the placeholder, an agent run stops with an error before doing any work.
+`.env` is listed in `.gitignore` and never committed; an environment variable works too. Never put a key in code. Without a key or address, an agent run stops with an error before doing any work.
 
-Each run writes `report.md` (in Chinese), `summary.json`, `memory.sqlite` (every factor tried and why it passed or failed), `transcript.jsonl` (every model call in full), `nav.csv` and `fills.csv` under `runs/<name>/`. Model replies are cached in `.cache/llm/` by request, so re-running an experiment costs nothing and gives the same result. The default model is DeepSeek's `deepseek-flash` with thinking mode off (DeepSeek turns it on by default), which keeps replies fast, makes the temperature setting count and costs less; add `--thinking enabled` to turn it on. Any OpenAI-compatible model works: `--model <name> --base-url <url> --api-key-env <variable>`, plus `--thinking omit` if the provider does not know the thinking parameter.
+Each run writes `report.md` (in Chinese), `summary.json`, `memory.sqlite` (every factor tried and why it passed or failed), `transcript.jsonl` (every model call in full), `nav.csv` and `fills.csv` under `runs/<name>/`. Model replies are cached in `.cache/llm/` by request, so re-running an experiment costs nothing and gives the same result.
+
+### Choosing a model
+
+The model layer is replaceable. `--provider` picks the provider; the default is `k2`:
+
+| `--provider` | Default model | Variables | Default holdout start |
+|---|---|---|---|
+| `k2` (default) | K2 Horizon 375B (MBZUAI's Institute of Foundation Models, `IFM/K2-Horizon-375B-A23B`) | `K2_API_KEY`, `K2_BASE_URL` | 2026-09-03 (no published cutoff, so the release date) |
+| `claude` | `claude-opus-5-5` | `ANTHROPIC_API_KEY` | 2026-07-01 (knowledge cutoff June 2026) |
+| `deepseek` | `deepseek-flash` | `DEEPSEEK_API_KEY` | 2026-10-17 (no published cutoff, so the current version's release date) |
+
+- K2 Horizon goes through the OpenAI-compatible protocol. It has no single public address, so the API address goes in `K2_BASE_URL`; if your API names the model something other than `IFM/K2-Horizon-375B-A23B`, put that name in `K2_MODEL` (the same model under another name keeps its holdout). It always reasons before answering; `--effort low|medium|high` sets how hard (default `high`), and sampling follows the model card: temperature 1.0, top_p 0.95.
+- DeepSeek also goes through the OpenAI-compatible protocol, with thinking mode off by default (DeepSeek turns it on otherwise), which keeps replies fast and cheap; add `--thinking enabled` to turn it on.
+- Claude goes through the official Anthropic SDK. It always thinks before answering; `--effort` sets how hard (default `high`), and the model sets its own temperature.
+- Any other OpenAI-compatible model: `--provider deepseek --model <name> --base-url <url> --api-key-env <variable>`, plus `--thinking omit` if the provider does not know the thinking parameter. For any model other than a default in the table, set `--holdout-start` to the day after that model's knowledge cutoff.
+
+**The holdout follows the model.** The test window (2023–2024) guards against overfitting through repeated trials, but the model has most likely seen those years in training; only data after its knowledge cutoff is truly new to it. So by default the holdout starts after the chosen model's knowledge cutoff, and train, validation and test all end before it. Give runs you compare (the two baselines and the agent) the same `--provider` so they share the holdout. The holdout needs at least 60 trading days to run: with data through October 2026, Claude has about 4 months; K2 Horizon has only about six weeks and reaches 60 trading days in early December 2026; DeepSeek is far from it.
 
 ## Results
 
@@ -103,7 +135,7 @@ src/timefence/
   cli.py        command line
 ```
 
-Imports only go downward (`cli -> experiments -> agents -> strategy -> backtest | factors -> data -> core`), checked by `uv run lint-imports`. Design notes are in [docs/architecture.md](docs/architecture.md) and [docs/adr/](docs/adr/) (in Chinese).
+Imports only go downward (`cli -> experiments -> agents -> strategy -> backtest | factors -> data -> core`), checked by `uv run lint-imports`. Design notes are in [docs/architecture.md](docs/architecture.md) and [docs/adr/](docs/adr/) (in Chinese). What changed in each step is in [CHANGELOG_EN.md](CHANGELOG_EN.md).
 
 ## Known simplifications
 

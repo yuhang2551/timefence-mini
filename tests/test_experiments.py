@@ -1,12 +1,13 @@
 import json
 
 import pandas as pd
+import pytest
 
 from timefence.agents.llm import PLACEHOLDER_KEY
 from timefence.cli import _load_dotenv, main
 from timefence.data.synthetic import synthetic_store
 from timefence.experiments.report import write_comparison
-from timefence.experiments.runner import RunConfig, choose_split, run_experiment
+from timefence.experiments.runner import RunConfig, choose_split, holdout_boundary, run_experiment
 
 
 def test_split_uses_fixed_dates_when_the_data_covers_them():
@@ -81,23 +82,58 @@ def test_holdout_comes_after_everything_else(tmp_path):
     test_end = pd.Timestamp(summary["split"]["test"].split("~")[1])
     assert test_end < start
     assert summary["holdout"]["window"].startswith(str(start.date()))
-    assert "最终留出期" in (tmp_path / "h" / "report.md").read_text()
+    report = (tmp_path / "h" / "report.md").read_text()
+    assert "最终留出期" in report and f"留出期：{start.date()} 起（运行时指定）" in report
+
+
+def test_holdout_starts_where_the_provider_stops_knowing(monkeypatch):
+    monkeypatch.delenv("K2_MODEL", raising=False)
+    k2 = holdout_boundary(RunConfig())
+    assert (k2["start"], k2["basis"]) == ("2026-09-03", "release")
+    monkeypatch.setenv("K2_MODEL", "k2-horizon")  # the same model under its host's name
+    assert holdout_boundary(RunConfig())["model"] == "k2-horizon"
+    with pytest.raises(ValueError, match="--holdout-start"):
+        holdout_boundary(RunConfig(model="k2-horizon-32b"))
+    claude = holdout_boundary(RunConfig(provider="claude"))
+    assert (claude["start"], claude["basis"]) == ("2026-07-01", "cutoff")
+    early = holdout_boundary(RunConfig(provider="claude", holdout_start="2026-01-01"))
+    assert early["basis"] == "manual" and early["before_bound"]
+    with pytest.raises(ValueError, match="--holdout-start"):
+        holdout_boundary(RunConfig(provider="deepseek", model="deepseek-pro"))
+    other = holdout_boundary(
+        RunConfig(provider="deepseek", model="deepseek-pro", holdout_start="2026-11-01")
+    )
+    assert other["knowledge_bound"] is None and not other["before_bound"]
+
+
+def test_comparison_flags_runs_with_different_splits(tmp_path):
+    for name, test in [("a", "2023-01-01~2024-12-31"), ("b", "2023-01-01~2025-06-30")]:
+        (tmp_path / name).mkdir()
+        summary = {
+            "run_id": name, "config": {"method": "random"},
+            "split": {"train": "t", "valid": "v", "test": test},
+            "mining": {"scored": 0, "counts": {"accepted": 0}}, "factors": [], "backtest": None,
+        }  # fmt: skip
+        (tmp_path / name / "summary.json").write_text(json.dumps(summary))
+    assert "不能直接比较" in write_comparison([tmp_path / "a", tmp_path / "b"], tmp_path / "c.md")
+    assert "不能直接比较" not in write_comparison([tmp_path / "a"], tmp_path / "c.md")
 
 
 def test_agent_run_without_a_key_fails_fast(tmp_path, monkeypatch):
-    import pytest
-
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("K2_BASE_URL", raising=False)
+    monkeypatch.delenv("K2_API_KEY", raising=False)
     store = synthetic_store(n_stocks=30, n_days=300)
-    with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY"):
+    with pytest.raises(RuntimeError, match="K2_BASE_URL.*--offline"):
+        run_experiment(store, RunConfig(method="agent"), tmp_path / "x")
+    monkeypatch.setenv("K2_BASE_URL", "https://k2.example.com/v1")
+    with pytest.raises(RuntimeError, match="K2_API_KEY"):
         run_experiment(store, RunConfig(method="agent"), tmp_path / "x")
     assert not (tmp_path / "x").exists()
 
 
 def test_agent_run_with_the_placeholder_key_fails_fast(tmp_path, monkeypatch):
-    import pytest
-
-    monkeypatch.setenv("DEEPSEEK_API_KEY", PLACEHOLDER_KEY)
+    monkeypatch.setenv("K2_BASE_URL", "https://k2.example.com/v1")
+    monkeypatch.setenv("K2_API_KEY", PLACEHOLDER_KEY)
     store = synthetic_store(n_stocks=30, n_days=300)
     with pytest.raises(RuntimeError, match="placeholder.*--offline"):
         run_experiment(store, RunConfig(method="agent"), tmp_path / "x")
